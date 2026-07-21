@@ -1,0 +1,57 @@
+# Phase 1 services: postgres, api (health-only stub), scheduler (Kalshi ingest).
+# The frontend service is added in Phase 5.
+#
+# Build context is the repo root so the image contains both ./backend and
+# ./db/migrations. The whole repo is bind-mounted at /app for live reload; the
+# marketedge package is importable via PYTHONPATH=/app/backend.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marketedge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketedge}
+      POSTGRES_DB: ${POSTGRES_DB:-marketedge}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marketedge} -d ${POSTGRES_DB:-marketedge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://marketedge:marketedge@postgres:5432/marketedge}
+    working_dir: /app/backend
+    command: uvicorn marketedge.api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://marketedge:marketedge@postgres:5432/marketedge}
+    working_dir: /app/backend
+    command: python -m scheduler.flows
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

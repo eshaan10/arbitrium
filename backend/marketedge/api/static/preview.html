@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<!--
+  MarketEdge — THROWAWAY sanity-check preview (scaffolding).
+
+  Purpose: let us eyeball the pipeline as each phase lands, instead of only
+  poking /docs. Single static file, vanilla JS, no build step, served directly
+  by the FastAPI app at /preview.
+
+  This is REPLACED by the real Next.js dashboard in Phase 5. Do not invest in it.
+
+  Expected GET /divergences item shape (Phase 2 will produce this; renderer is
+  defensive about missing fields):
+    {
+      "matchup": "GB @ CHI",          // or derived from home/away teams
+      "sport": "nfl",
+      "kalshi_probability": 0.61,      // 0..1 implied prob (crowd positioning)
+      "sportsbook_probability": 0.55,  // 0..1 vig-stripped consensus
+      "divergence": 0.06,              // signed or abs gap, 0..1
+      "confidence": 0.72,              // liquidity-weighted 0..1 (drives badge fade)
+      "is_arbitrage": false
+    }
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MarketEdge — pipeline preview</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #21262d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --arb: #3fb950;
+    --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .scaffold-tag {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--warn); border: 1px solid var(--warn); border-radius: 4px;
+    padding: 1px 6px;
+  }
+  .status { color: var(--muted); font-size: 12px; margin: 8px 0 20px; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); margin-right: 6px; vertical-align: middle; }
+  .status.live .dot { background: var(--arb); }
+  .status.waiting .dot { background: var(--warn); }
+  .status.error .dot { background: #f85149; }
+
+  .notice {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; color: var(--muted); max-width: 640px;
+  }
+  .notice strong { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .03em; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--border); background: var(--panel);
+  }
+  /* Confidence badge: opacity scales with the liquidity-weighted score.
+     Low confidence = faded (but NEVER hidden), per design principle #1. */
+  .conf-high   { color: var(--arb);  border-color: var(--arb); }
+  .conf-med    { color: var(--accent); border-color: var(--accent); }
+  .conf-low    { color: var(--muted); border-color: var(--muted); }
+
+  .arb-flag {
+    color: var(--arb); border: 1px solid var(--arb); border-radius: 4px;
+    font-size: 11px; padding: 1px 5px; margin-left: 6px;
+  }
+  .diverge-pos { color: var(--accent); }
+  footer { margin-top: 24px; color: var(--muted); font-size: 11px; }
+  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>MarketEdge — pipeline preview</h1>
+    <span class="scaffold-tag">scaffolding · replaced in Phase 5</span>
+  </header>
+  <div id="status" class="status"><span class="dot"></span><span id="status-text">Loading…</span></div>
+
+  <div id="content"></div>
+
+  <footer>
+    Auto-refreshes every 30s · source: <code>GET /divergences</code> ·
+    Kalshi probability = crowd positioning; sportsbook = vig-stripped consensus.
+  </footer>
+
+<script>
+const REFRESH_MS = 30000;
+const contentEl = document.getElementById("content");
+const statusEl = document.getElementById("status");
+const statusText = document.getElementById("status-text");
+
+function setStatus(kind, text) {
+  statusEl.className = "status " + kind;
+  statusText.textContent = text;
+}
+
+function pct(x) {
+  return (x === null || x === undefined || isNaN(x)) ? "—" : (x * 100).toFixed(1) + "%";
+}
+
+// Map liquidity-weighted confidence (0..1) -> a tier + an opacity so low-confidence
+// rows read as faded but remain fully visible. Never filter them out.
+function confidenceBadge(conf) {
+  if (conf === null || conf === undefined || isNaN(conf)) {
+    return '<span class="badge conf-low" style="opacity:.5">unknown</span>';
+  }
+  const opacity = (0.4 + 0.6 * Math.max(0, Math.min(1, conf))).toFixed(2);
+  let cls = "conf-low", label = "low";
+  if (conf >= 0.66) { cls = "conf-high"; label = "high"; }
+  else if (conf >= 0.33) { cls = "conf-med"; label = "med"; }
+  return `<span class="badge ${cls}" style="opacity:${opacity}">${label} · ${(conf*100).toFixed(0)}%</span>`;
+}
+
+function matchupOf(d) {
+  if (d.matchup) return d.matchup;
+  if (d.away_team && d.home_team) return `${d.away_team} @ ${d.home_team}`;
+  return d.event_id || "—";
+}
+
+function render(divergences) {
+  if (!Array.isArray(divergences) || divergences.length === 0) {
+    contentEl.innerHTML = '<div class="notice">Endpoint is live but returned '
+      + '<strong>no divergences</strong> right now. This is normal if no snapshots '
+      + 'have been ingested yet, or nothing currently diverges.</div>';
+    return;
+  }
+  // Sort by divergence magnitude, largest first (matches dashboard intent).
+  const rows = divergences.slice().sort(
+    (a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0)
+  );
+  let html = `<table><thead><tr>
+      <th>Matchup</th><th>Sport</th>
+      <th>Kalshi (crowd)</th><th>Sportsbook</th>
+      <th>Divergence</th><th>Confidence</th>
+    </tr></thead><tbody>`;
+  for (const d of rows) {
+    const arb = d.is_arbitrage ? '<span class="arb-flag">ARB</span>' : "";
+    html += `<tr>
+      <td>${matchupOf(d)}${arb}</td>
+      <td>${d.sport ?? "—"}</td>
+      <td class="num">${pct(d.kalshi_probability)}</td>
+      <td class="num">${pct(d.sportsbook_probability)}</td>
+      <td class="num diverge-pos">${pct(Math.abs(d.divergence ?? NaN))}</td>
+      <td>${confidenceBadge(d.confidence)}</td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  contentEl.innerHTML = html;
+}
+
+function showWaiting() {
+  // Phase 1: /divergences doesn't exist yet -> 404. Show a clear message,
+  // never a silent failure.
+  contentEl.innerHTML = '<div class="notice">'
+    + '<strong>Waiting on the Phase 2 endpoint.</strong><br><br>'
+    + 'The <code>GET /divergences</code> route isn\'t built yet (returned 404). '
+    + 'This preview will start showing data automatically once Phase 2 ships the '
+    + 'divergence-detection endpoint. Nothing is broken — the pipeline just '
+    + 'hasn\'t reached this stage.</div>';
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/divergences", { headers: { "Accept": "application/json" } });
+    if (res.status === 404) {
+      setStatus("waiting", "Phase 2 endpoint not built yet — waiting");
+      showWaiting();
+      return;
+    }
+    if (!res.ok) {
+      setStatus("error", `/divergences returned HTTP ${res.status}`);
+      contentEl.innerHTML = `<div class="notice"><strong>Unexpected response.</strong><br>`
+        + `<code>GET /divergences</code> returned HTTP ${res.status}.</div>`;
+      return;
+    }
+    const data = await res.json();
+    // Accept either a bare array or {divergences:[...]}.
+    const list = Array.isArray(data) ? data : (data.divergences || []);
+    setStatus("live", `Live · ${list.length} divergence(s) · updated ${new Date().toLocaleTimeString()}`);
+    render(list);
+  } catch (err) {
+    setStatus("error", "Network error reaching the API");
+    contentEl.innerHTML = `<div class="notice"><strong>Couldn't reach the API.</strong><br>`
+      + `Is the FastAPI service running? (${err})</div>`;
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>
