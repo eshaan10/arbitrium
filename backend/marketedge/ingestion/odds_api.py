@@ -31,6 +31,7 @@ from marketedge.config import settings
 from marketedge.db.models import Event, OddsSnapshot
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import NormalizedSnapshot, normalize_odds_api_consensus
+from marketedge.ingestion.snapshots import insert_snapshots
 from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_by_name
 
@@ -193,23 +194,25 @@ def _insert_consensus_snapshots(session: Session, event_id: uuid_mod.UUID, extra
     key = extract.key
     now = datetime.now(tz=key.start.tzinfo) if key.start.tzinfo else datetime.utcnow()
     team_for = {"home": key.home_team, "away": key.away_team, "draw": None}
-    for snap in extract.snapshots:
-        session.add(
-            OddsSnapshot(
-                event_id=event_id,
-                source=snap.source,
-                outcome=snap.outcome,
-                team=team_for.get(snap.outcome),
-                implied_probability=snap.implied_probability,
-                raw_price=snap.raw_price,
-                price_format=snap.price_format,
-                liquidity_score=snap.liquidity_score,  # None for sportsbooks
-                order_book_depth=snap.order_book_depth,
-                ingested_at=now,
-                snapshot_time=now,
-            )
-        )
-    return len(extract.snapshots)
+    return insert_snapshots(
+        session,
+        [
+            {
+                "event_id": event_id,
+                "source": snap.source,
+                "outcome": snap.outcome,
+                "team": team_for.get(snap.outcome),
+                "implied_probability": snap.implied_probability,
+                "raw_price": snap.raw_price,
+                "price_format": snap.price_format,
+                "liquidity_score": snap.liquidity_score,  # None for sportsbooks
+                "order_book_depth": snap.order_book_depth,
+                "ingested_at": now,
+                "snapshot_time": now,
+            }
+            for snap in extract.snapshots
+        ],
+    )
 
 
 def ingest_odds_event(session: Session, event: dict, sport_cfg: OddsSport) -> int:

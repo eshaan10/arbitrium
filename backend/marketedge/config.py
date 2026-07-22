@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # literal, so we can tune it once real unmatched-event logs come in.
     event_match_window_days: int = 3
 
+    # Minimum bookmakers required before a sportsbook consensus is trusted enough
+    # to score a divergence against. A "median" over one or two books is not a
+    # consensus, and far from kickoff most events have exactly one book quoting.
+    # Below this floor the event is still stored and still returned by
+    # /divergences, but flagged 'insufficient_consensus' with NO divergence score
+    # — an excluded event is honest, a precise-looking number over one book is not.
+    min_consensus_books: int = 3
+
     log_level: str = "INFO"
 
     @field_validator("kalshi_series_tickers", mode="before")

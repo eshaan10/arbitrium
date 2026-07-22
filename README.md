@@ -28,32 +28,46 @@ These are baked into the code, not just the UI copy:
 
 ## Status
 
-**Phase 1 — Foundation (in progress).** Repo scaffold, Docker Compose, Postgres schema/migrations,
-Kalshi ingestion, and normalization tests. See the build order below.
+**Phase 2 — Sportsbook ingestion and divergence scoring (in progress).** Both sources ingest and
+merge into one event row regardless of poll order, and `/divergences` is live. Remaining: wiring the
+Odds API into the scheduled poller. See the build order below.
 
 ### Build order
 
 | Phase | Scope | State |
 |-------|-------|-------|
-| 1 | Foundation: schema, Kalshi ingestion, normalization tests | **active** |
-| 2 | Sportsbook ingestion, divergence scoring, `/divergences` | planned |
+| 1 | Foundation: schema, Kalshi ingestion, normalization tests | **done** |
+| 2 | Sportsbook ingestion, divergence scoring, `/divergences` | **active** |
 | 3 | Outcome resolution, calibration + grading, `/performance` | planned |
 | 4 | Combo optimizer (3 risk tiers), `/combos` | planned |
 | 5 | Frontend (dashboard, game detail, combo builder, performance) | planned |
 | 6 | CI/CD, deploy, README polish | planned |
 
-## Architecture (Phase 1)
+## Architecture (Phase 2)
 
 ```
-Kalshi public API ──> ingestion/kalshi.py ──> normalize.py ──> odds_snapshots (append-only)
-                                                                       │
-                       scheduler/flows.py (Prefect, polling)           └─> events (metadata + resolution)
+Kalshi public API ──> ingestion/kalshi.py ────┐
+                                              ├─> matching.py ──> events (one row per game,
+The Odds API ──────> ingestion/odds_api.py ───┘                    dual-keyed)
+                              │                                        │
+                              └──> normalize.py ──> odds_snapshots ────┤
+                                   (vig stripped)   (append-only)      │
+                                                                       v
+                       scheduler/flows.py (Prefect)          divergence/engine.py ──> /divergences
 ```
 
 - **Ingestion:** Python + httpx, scheduled via Prefect.
 - **Storage:** PostgreSQL. `odds_snapshots` is append-only; a `BEFORE INSERT` trigger suppresses
   rows whose price is unchanged since the last observation for the same `(event, source, outcome)`.
-- **API:** FastAPI (Phase 1 exposes `/health` only; data endpoints land in Phase 2+).
+  Snapshots are written via Core executemany, never the ORM unit of work — an `INSERT ... RETURNING`
+  miscounts its rows when the trigger suppresses one and aborts the whole flush.
+- **Matching:** both ingestion paths run the same matcher before inserting, so whichever source polls
+  first creates the event and the other merges into it. Poll order is not load-bearing.
+- **Divergence:** Kalshi vs sportsbook consensus, joined on `team` (never home/away, which is
+  provisional for Kalshi). Events that can't be scored — one source, or a consensus over fewer than
+  `MIN_CONSENSUS_BOOKS` bookmakers — are returned with an explicit status and no number, rather than
+  filtered out.
+- **API:** FastAPI: `/health`, `/divergences`.
 
 ## Running locally
 

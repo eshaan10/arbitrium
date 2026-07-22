@@ -15,6 +15,11 @@ Home vs away is NOT labelled by Kalshi. Events are created with a PROVISIONAL
 home/away (from ticker ordering, ``home_away_source='kalshi_provisional'``); Phase
 2 confirms the authoritative assignment by matching to The Odds API.
 
+``upsert_event`` runs the shared matcher before inserting, so a game The Odds API
+already created is merged into (dual-keyed) rather than duplicated. Together with
+the Odds-API-side merge this makes poll ORDER irrelevant — neither source has to
+run first for the data to land on one event row.
+
 Anything that fails to parse (unknown team, missing price, malformed ticker) is
 logged and skipped — never raised — so one bad event can't abort the run.
 """
@@ -28,13 +33,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import func
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from marketedge.config import settings
 from marketedge.db.engine import get_session
 from marketedge.db.models import Event, OddsSnapshot
+from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import normalize_kalshi_event
+from marketedge.ingestion.snapshots import insert_snapshots
+from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_team
 
 logger = logging.getLogger(__name__)
@@ -237,8 +245,23 @@ def extract_event_metadata(event: dict, cfg: SeriesConfig) -> KalshiEventMetadat
     )
 
 
-def upsert_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
-    """Insert the event (or refresh it) and return its id.
+def _claim_existing_event(session, event_id: uuid_mod.UUID, meta: KalshiEventMetadata) -> None:
+    """Attach this Kalshi ticker to an event another source already created.
+
+    Only the Kalshi-side key is written. home/away, home_away_source and
+    scheduled_start are LEFT ALONE: the existing row's values came from The Odds
+    API and are authoritative, while Kalshi's are provisional ticker ordering and
+    a date-only kickoff. Downgrading them here would undo the Phase-2 enrichment.
+    """
+    session.execute(
+        update(Event)
+        .where(Event.id == event_id)
+        .values(kalshi_event_ticker=meta.kalshi_event_ticker, updated_at=func.now())
+    )
+
+
+def _insert_kalshi_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
+    """Insert a Kalshi-sourced event, refreshing it if the ticker already exists.
 
     On conflict we refresh ``scheduled_start``/``updated_at`` only — we do NOT
     overwrite home/away or home_away_source, so a Phase-2 authoritative
@@ -265,6 +288,50 @@ def upsert_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
     return session.execute(stmt).scalar_one()
 
 
+def upsert_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
+    """Resolve this Kalshi event to an ``events`` row id, merging if one exists.
+
+    This is the reciprocal of the Odds-API-side merge, and it is what makes poll
+    ORDER irrelevant. Previously Kalshi inserted blind on its own ticker, so a
+    game the Odds API had already created would be split into two rows the moment
+    Odds API polled first. The three cases:
+
+      * ticker already known -> fast path, refresh it (the steady state);
+      * matches an existing (odds-only) event -> claim it, one row, dual-keyed;
+      * no match -> insert a new Kalshi-only event.
+
+    AMBIGUOUS (a doubleheader, where merging into either candidate would be a
+    guess) creates a Kalshi-only event rather than skipping. Kalshi is the primary
+    source, so dropping its prices to avoid a duplicate would trade a recoverable
+    problem (an extra row, mergeable later) for an unrecoverable one (a gap in
+    append-only price history).
+    """
+    existing = session.execute(
+        select(Event.id).where(Event.kalshi_event_ticker == meta.kalshi_event_ticker)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return _insert_kalshi_event(session, meta)  # known ticker: refresh via upsert
+
+    key = EventKey(meta.sport, meta.home_team, meta.away_team, meta.scheduled_start)
+    event_id, status = find_event_by_match(session, key)
+    if event_id is not None:
+        logger.info(
+            "Kalshi event %s merged into existing event %s (created by another source)",
+            meta.kalshi_event_ticker, event_id,
+        )
+        _claim_existing_event(session, event_id, meta)
+        return event_id
+
+    if status is MatchStatus.AMBIGUOUS:
+        logger.warning(
+            "Kalshi event %s: ambiguous match (possible doubleheader); creating a "
+            "Kalshi-only event rather than guessing which existing row to merge into",
+            meta.kalshi_event_ticker,
+        )
+
+    return _insert_kalshi_event(session, meta)
+
+
 def ingest_event(session, event: dict, cfg: SeriesConfig) -> int:
     """Upsert one event and queue its snapshots. Returns snapshot rows attempted.
 
@@ -281,22 +348,29 @@ def ingest_event(session, event: dict, cfg: SeriesConfig) -> int:
         meta.outcome_markets, kalshi_event_ticker=meta.kalshi_event_ticker
     )
     now = datetime.now(timezone.utc)
-    for snap in snaps:
-        session.add(
-            OddsSnapshot(
-                event_id=event_id,
-                source=snap.source,
-                outcome=snap.outcome,
-                implied_probability=snap.implied_probability,
-                raw_price=snap.raw_price,
-                price_format=snap.price_format,
-                liquidity_score=snap.liquidity_score,
-                order_book_depth=snap.order_book_depth,
-                ingested_at=now,
-                snapshot_time=now,
-            )
-        )
-    return len(snaps)
+    # Anchor each row to its team at write time. home/away here is provisional and
+    # may be flipped later by The Odds API; team never changes, which is the whole
+    # point of the column (see migration 0005). 'draw' carries no team.
+    team_for = {"home": meta.home_team, "away": meta.away_team, "draw": None}
+    return insert_snapshots(
+        session,
+        [
+            {
+                "event_id": event_id,
+                "source": snap.source,
+                "outcome": snap.outcome,
+                "team": team_for.get(snap.outcome),
+                "implied_probability": snap.implied_probability,
+                "raw_price": snap.raw_price,
+                "price_format": snap.price_format,
+                "liquidity_score": snap.liquidity_score,
+                "order_book_depth": snap.order_book_depth,
+                "ingested_at": now,
+                "snapshot_time": now,
+            }
+            for snap in snaps
+        ],
+    )
 
 
 def run_ingest(series_tickers: list[str] | None = None) -> int:
