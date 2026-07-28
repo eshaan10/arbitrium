@@ -28,17 +28,18 @@ These are baked into the code, not just the UI copy:
 
 ## Status
 
-**Phase 2 — Sportsbook ingestion and divergence scoring (in progress).** Both sources ingest and
-merge into one event row regardless of poll order, and `/divergences` is live. Remaining: wiring the
-Odds API into the scheduled poller. See the build order below.
+**Phase 2 — Sportsbook ingestion and divergence scoring: complete**, verified end to end against
+live NFL data. Both sources ingest on independent schedules and merge into one event row regardless
+of poll order; `/divergences` reports four independent axes with nothing blended into a single
+score. See [what shipped](#phase-2-what-shipped) below, including the gaps left open on purpose.
 
 ### Build order
 
 | Phase | Scope | State |
 |-------|-------|-------|
 | 1 | Foundation: schema, Kalshi ingestion, normalization tests | **done** |
-| 2 | Sportsbook ingestion, divergence scoring, `/divergences` | **active** |
-| 3 | Outcome resolution, calibration + grading, `/performance` | planned |
+| 2 | Sportsbook ingestion, divergence scoring, `/divergences` | **done** |
+| 3 | Outcome resolution, calibration + grading, `/performance` | next |
 | 4 | Combo optimizer (3 risk tiers), `/combos` | planned |
 | 5 | Frontend (dashboard, game detail, combo builder, performance) | planned |
 | 6 | CI/CD, deploy, README polish | planned |
@@ -76,6 +77,55 @@ The Odds API ──────> ingestion/odds_api.py ───┘             
   `/health` independently reports per-source write recency straight from the append-only table, so a
   dead poller still surfaces after a restart clears in-process counters.
 - **API:** FastAPI: `/health`, `/divergences`.
+
+## Phase 2: what shipped
+
+**Ingestion.** The Odds API v4 h2h odds for NFL/NBA, verified against the live payload before being
+trusted. Per-book American prices are vig-stripped individually, then combined by **median** (not
+mean) so one mispriced book cannot drag the consensus. Raw per-book odds are preserved in
+`order_book_depth` — which is what makes arbitrage detectable at all.
+
+**Matching.** One game becomes one `events` row no matter which source sees it first. Matching is on
+`(sport, unordered team pair)` disambiguated by start-time proximity, never by date equality: the two
+sources legitimately disagree on the calendar date (Kalshi carries the originally-scheduled date,
+The Odds API the current kickoff, and night games cross UTC midnight). Both ingestion paths run the
+same matcher, so poll order is not load-bearing. Ambiguous matches (doubleheaders) are never guessed.
+
+**Divergence scoring — four independent axes, never blended:**
+
+| Axis | Question it answers | Priced off |
+|------|--------------------|------------|
+| `divergence` | How far apart are the two sources' *beliefs*? | vig-stripped mids |
+| `net_edge_after_spread` | What survives crossing Kalshi's book? | raw executable bid/ask |
+| `expected_value_at_depth` | Is the trade worth *money*, not just a good rate? | edge × resting size |
+| `is_arbitrage` | Is there a risk-free position needing no belief at all? | raw odds, best book per outcome |
+
+These genuinely disagree, which is the point. On live data the largest divergence ranked 5th by net
+edge, and the leg with the *lower* percentage edge was worth ~4× more in dollars. Arbitrage is kept
+strictly separate from net edge: a net edge pays only if the sportsbook consensus is the better
+estimate, while an arbitrage pays regardless of outcome. `gross_profit` models **no fees and no
+execution risk** and is an upper bound, not a return.
+
+**Monitoring.** Every ingest pass reports rows *written*, not attempted. Consecutive failures escalate
+with an `INGEST_UNHEALTHY` log marker; `/health` independently reports per-source write recency from
+the append-only table, so a dead poller still surfaces after a restart clears in-process counters.
+
+### Deferred on purpose
+
+* **Reciprocal merge is unit-tested, not production-exercised.** All 16 live matches happened to
+  agree with Kalshi's provisional home/away, so the authoritative-flip path has not yet run on real
+  data. Awaiting a real doubleheader / postponement to exercise it.
+* **`ingest_runs` table deferred to Phase 3**, where calibration wants job history anyway. Until
+  then, "poller dead" vs "market genuinely quiet" is a heuristic rather than an exact answer.
+* **NFL preseason has no sportsbook coverage.** The Odds API's `americanfootball_nfl` key is
+  regular-season only, so Kalshi preseason games stay `single_source_no_divergence` by design rather
+  than being silently omitted. Adding `americanfootball_nfl_preseason` would close it, at quota cost.
+* **`liquidity_score` is a constant 0.** Kalshi's `liquidity_dollars` reports 0 on every observed
+  market. The column keeps its original meaning rather than being redefined; real depth is a separate
+  derived `resting_depth` from the bid/ask sizes.
+* **No fee model.** Small gross arbitrages are very likely negative after Kalshi's trading fees.
+  Modelling them needs real per-venue fee data; a wrong fee model would be worse than an honest gross
+  figure with a stated caveat.
 
 ## Running locally
 

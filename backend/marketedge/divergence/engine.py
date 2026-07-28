@@ -60,6 +60,7 @@ from sqlalchemy.orm import Session
 
 from marketedge.config import settings
 from marketedge.db.models import Event, OddsSnapshot
+from marketedge.ingestion.normalize import american_to_probability
 
 KALSHI_SOURCE = "kalshi"
 CONSENSUS_SOURCE = "consensus"
@@ -89,6 +90,11 @@ class OutcomeQuote:
     ask: float | None = None
     bid_size: float | None = None
     ask_size: float | None = None
+
+    # Consensus only: each individual book's RAW American odds, vig included.
+    # Arbitrage has to price off these, never off implied_probability — see
+    # :func:`detect_arbitrage`.
+    book_prices: dict[str, float] | None = None
 
     @property
     def join_key(self) -> str:
@@ -157,6 +163,30 @@ class OutcomeDivergence:
         """Whether any edge survives crossing the spread."""
         return self.net_edge_after_spread is not None and self.net_edge_after_spread > 0
 
+    @property
+    def expected_value_at_depth(self) -> float | None:
+        """Capturable edge scaled by the size actually resting at that price.
+
+        A percentage edge says nothing about whether the trade is worth making.
+        Live NFL books routinely offer a ~1.9% edge against 3.5 contracts of
+        resting size — around six cents of expected profit, which is economically
+        noise wearing a respectable-looking percentage.
+
+        Deliberately a REPORTED NUMBER, not a gate. A minimum-depth floor would be
+        a third magic threshold needing its own justification, and would go stale
+        as liquidity builds toward kickoff; multiplying by depth makes a thin
+        opportunity visibly small without inventing a cutoff. Same reasoning as
+        keeping divergence and net edge on separate axes.
+
+        Units are contract-dollars: a Kalshi contract settles at $1, so
+        ``edge x contracts`` is the expected dollar profit on filling the whole
+        resting size. None when either input is unknown; 0 or negative when the
+        edge is not capturable.
+        """
+        if self.net_edge_after_spread is None or self.resting_depth is None:
+            return None
+        return self.net_edge_after_spread * self.resting_depth
+
 
 @dataclass(frozen=True)
 class EventDivergence:
@@ -172,6 +202,9 @@ class EventDivergence:
     n_books: int | None
     max_abs_divergence: float | None
     outcomes: list[OutcomeDivergence]
+    # Independent of `status`: arbitrage needs no probability estimate, so it is
+    # checked even when the consensus is too thin to score a divergence against.
+    arbitrage: Arbitrage | None = None
 
     @property
     def best_net_edge(self) -> float | None:
@@ -199,15 +232,144 @@ class EventDivergence:
 
     @property
     def best_trade(self) -> OutcomeDivergence | None:
-        """The single outcome row offering the best fill — the one leg to take."""
+        """The single leg to take — ranked by expected DOLLARS, not by rate.
+
+        Rate and value disagree, and the difference is not academic. Live
+        Packers/Vikings offered +1.9% against 170 contracts on one leg and +0.9%
+        against 1,434 on the other: the lower percentage is worth about four
+        times more money. Ranking by percentage would name the smaller trade the
+        winner, and then ``best_expected_value`` would not be the best expected
+        value available — which is exactly the sort of blended-number confusion
+        the two-axis design exists to prevent.
+
+        Falls back to rate only when no leg reports depth, since with size
+        unknown the per-contract edge is the only thing left to compare.
+        """
         candidates = [o for o in self.outcomes if o.tradeable]
         if not candidates:
             return None
+        with_value = [o for o in candidates if o.expected_value_at_depth is not None]
+        if with_value:
+            return max(with_value, key=lambda o: o.expected_value_at_depth or 0.0)
         return max(candidates, key=lambda o: o.net_edge_after_spread or 0.0)
 
     @property
     def tradeable(self) -> bool:
         return any(o.tradeable for o in self.outcomes)
+
+    @property
+    def is_arbitrage(self) -> bool:
+        return self.arbitrage is not None
+
+    @property
+    def best_expected_value(self) -> float | None:
+        """Expected dollars at the best fill — edge scaled by resting size."""
+        trade = self.best_trade
+        return trade.expected_value_at_depth if trade else None
+
+
+@dataclass(frozen=True)
+class ArbitrageLeg:
+    """One outcome of an arbitrage, and where to buy it cheapest."""
+
+    join_key: str
+    team: str | None
+    venue: str  # 'kalshi' or a bookmaker key
+    implied_price: float  # raw, vig included — what you actually pay
+
+
+@dataclass(frozen=True)
+class Arbitrage:
+    """A position covering every outcome for less than the $1 it pays back.
+
+    ``gross_profit`` is named gross for a reason: it models NO trading fees and
+    NO execution risk. Kalshi charges a per-trade fee and sportsbooks impose
+    stake limits and can move or void a line before both legs are filled, so a
+    small gross number is very likely negative once real costs land. Observed
+    live: a 0.02% gross arbitrage, which no fee schedule survives.
+
+    A fee model is deliberately NOT invented here — it would need real per-venue
+    fee data to be anything better than a guess, and a wrong fee model is worse
+    than an honest gross figure next to a stated caveat. Callers must read
+    ``gross_profit`` as an upper bound, never as realised profit.
+    """
+
+    total_cost: float  # sum of the cheapest price per outcome
+    gross_profit: float  # 1 - total_cost, BEFORE fees and execution risk
+    legs: list[ArbitrageLeg]
+    limiting_depth: float | None  # Kalshi resting size on any Kalshi leg
+
+
+def detect_arbitrage(
+    kalshi_quotes: list[OutcomeQuote], consensus_quotes: list[OutcomeQuote]
+) -> Arbitrage | None:
+    """Find a risk-free cross-venue position, if one exists.
+
+    Categorically different from a divergence or a net edge, and kept on its own
+    axis for that reason. A net edge is DIRECTIONAL — it pays only if the
+    sportsbook consensus is a better probability estimate than Kalshi, so it
+    depends on trusting the consensus. Arbitrage requires no belief at all: if
+    every outcome can be bought for less than $1 in total, the position returns
+    $1 whatever happens. Blending the two would let a confident guess masquerade
+    as a certainty.
+
+    Two consequences of that independence, both deliberate:
+
+    * **Raw prices only.** ``implied_probability`` is vig-stripped and
+      renormalised to sum to exactly 1, so arbitrage computed from it is
+      impossible BY CONSTRUCTION. This prices off Kalshi's raw ask and each
+      book's raw American odds (vig included) from ``order_book_depth``.
+    * **No consensus-quality gate.** ``min_consensus_books`` exists to decide
+      whether a median is a trustworthy probability ESTIMATE. Arbitrage needs no
+      estimate, so a single-book event can carry a perfectly real arbitrage and
+      is checked like any other.
+
+    Per outcome we take the cheapest route across all venues — the best
+    individual book, not the median, since you place the bet wherever the price
+    is best. Returns None unless every outcome is priced (an uncovered outcome
+    means the position is not risk-free).
+    """
+    by_key: dict[str, list[tuple[str, float]]] = {}
+
+    for q in kalshi_quotes:
+        if q.ask is not None:
+            by_key.setdefault(q.join_key, []).append(("kalshi", q.ask))
+
+    for q in consensus_quotes:
+        for book, american in (q.book_prices or {}).items():
+            try:
+                by_key.setdefault(q.join_key, []).append(
+                    (book, american_to_probability(american))
+                )
+            except ValueError:
+                continue  # unusable quote from one book; others may still price it
+
+    outcomes = {q.join_key for q in kalshi_quotes} | {q.join_key for q in consensus_quotes}
+    if not outcomes or not outcomes <= set(by_key):
+        return None  # an outcome we cannot cover; the position would carry risk
+
+    teams = {q.join_key: q.team for q in (*consensus_quotes, *kalshi_quotes)}
+    legs: list[ArbitrageLeg] = []
+    for key in sorted(outcomes):
+        venue, price = min(by_key[key], key=lambda vp: vp[1])
+        legs.append(ArbitrageLeg(key, teams.get(key), venue, price))
+
+    total = sum(leg.implied_price for leg in legs)
+    if total >= 1.0:
+        return None
+
+    kalshi_depth = [
+        q.ask_size
+        for q in kalshi_quotes
+        if q.ask_size is not None
+        and any(leg.venue == "kalshi" and leg.join_key == q.join_key for leg in legs)
+    ]
+    return Arbitrage(
+        total_cost=total,
+        gross_profit=1.0 - total,
+        legs=legs,
+        limiting_depth=min(kalshi_depth) if kalshi_depth else None,
+    )
 
 
 def net_edge(kalshi: OutcomeQuote, consensus_probability: float) -> tuple[float | None, str | None]:
@@ -393,6 +555,8 @@ def _latest_quotes(session: Session, event_ids: list[uuid_mod.UUID]) -> dict[
                 ask=_as_float(depth.get("yes_ask")),
                 bid_size=_as_float(depth.get("yes_bid_size")),
                 ask_size=_as_float(depth.get("yes_ask_size")),
+                # Consensus only: raw per-book American odds, for arbitrage.
+                book_prices=depth.get("books_american"),
             )
         )
     return out
@@ -462,6 +626,10 @@ def compute_divergences(
                 n_books=n_books,
                 max_abs_divergence=max_abs,
                 outcomes=rows,
+                arbitrage=detect_arbitrage(
+                    quotes.get((e.id, KALSHI_SOURCE), []),
+                    quotes.get((e.id, CONSENSUS_SOURCE), []),
+                ),
             )
         )
 

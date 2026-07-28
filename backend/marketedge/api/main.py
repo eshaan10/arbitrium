@@ -176,6 +176,7 @@ def divergences(
         "count": len(results),
         "counts_by_status": counts,
         "tradeable_count": sum(1 for r in results if r.tradeable),
+        "arbitrage_count": sum(1 for r in results if r.is_arbitrage),
         "divergences": [
             {
                 "event_id": str(r.event_id),
@@ -191,6 +192,30 @@ def divergences(
                 "max_abs_divergence": _r(r.max_abs_divergence),
                 "best_net_edge": _r(r.best_net_edge),
                 "tradeable": r.tradeable,
+                "best_expected_value": _r(r.best_expected_value, 4),
+                # Risk-free, and therefore NOT a kind of net edge: an arbitrage
+                # pays regardless of outcome, while a net edge only pays if the
+                # sportsbook consensus is the better estimate. Own field, own
+                # meaning, never folded into the edge numbers.
+                "is_arbitrage": r.is_arbitrage,
+                "arbitrage": (
+                    {
+                        "total_cost": _r(r.arbitrage.total_cost),
+                        # GROSS: no fees, no execution risk. An upper bound, not a return.
+                        "gross_profit": _r(r.arbitrage.gross_profit),
+                        "limiting_depth": r.arbitrage.limiting_depth,
+                        "legs": [
+                            {
+                                "team": leg.team,
+                                "venue": leg.venue,
+                                "implied_price": _r(leg.implied_price),
+                            }
+                            for leg in r.arbitrage.legs
+                        ],
+                    }
+                    if r.arbitrage
+                    else None
+                ),
                 # The single best fill. Outcome rows are alternative executions of
                 # one directional view, not independent bets, so callers must act
                 # on this rather than summing per-outcome edges.
@@ -214,6 +239,7 @@ def divergences(
                         "trade_side": o.trade_side,
                         "spread": _r(o.spread),
                         "resting_depth": o.resting_depth,
+                        "expected_value_at_depth": _r(o.expected_value_at_depth, 4),
                         "tradeable": o.tradeable,
                     }
                     for o in r.outcomes

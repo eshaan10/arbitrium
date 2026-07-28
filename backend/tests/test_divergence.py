@@ -13,8 +13,10 @@ from datetime import datetime, timedelta, timezone
 from marketedge.db.models import Event, OddsSnapshot
 from marketedge.divergence.engine import (
     DivergenceStatus,
+    OutcomeDivergence,
     OutcomeQuote,
     compute_divergences,
+    detect_arbitrage,
     score_event,
 )
 
@@ -347,3 +349,204 @@ def test_best_trade_is_none_when_nothing_is_tradeable():
     assert ev.best_trade is None
     # A negative best_net_edge is still reported — it says HOW FAR from tradeable.
     assert ev.best_net_edge is not None and ev.best_net_edge < 0
+
+
+# --- expected value at depth -------------------------------------------------
+
+
+def test_expected_value_exposes_the_thin_book_case():
+    """The live Lions case: a healthy percentage on almost no size.
+
+    +1.87% against 3.5 resting contracts is ~6 cents. The percentage looks
+    respectable; the expected value makes the truth obvious without needing a
+    depth floor to reject it.
+    """
+    kalshi = [_k("Lions", 0.7600, bid=0.7600, ask=0.7700, bid_size=3.53, ask_size=90.0)]
+    consensus = [_q("Lions", 0.7413, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    row = rows[0]
+    assert row.tradeable is True
+    assert abs(row.net_edge_after_spread - 0.0187) < 1e-9  # a healthy-looking %
+    assert row.resting_depth == 3.53
+    assert row.expected_value_at_depth < 0.10  # ...worth about six cents
+
+
+def test_expected_value_ranks_thin_below_deep_at_equal_edge():
+    """Same percentage edge, very different trades."""
+    thin = OutcomeDivergence(
+        join_key="A", team="A", kalshi_probability=0.5, consensus_probability=0.5,
+        divergence=0.0, net_edge_after_spread=0.02, resting_depth=3.0,
+    )
+    deep = OutcomeDivergence(
+        join_key="B", team="B", kalshi_probability=0.5, consensus_probability=0.5,
+        divergence=0.0, net_edge_after_spread=0.02, resting_depth=1000.0,
+    )
+    assert thin.net_edge_after_spread == deep.net_edge_after_spread
+    assert deep.expected_value_at_depth > thin.expected_value_at_depth
+    assert abs(thin.expected_value_at_depth - 0.06) < 1e-9
+    assert abs(deep.expected_value_at_depth - 20.0) < 1e-9
+
+
+def test_expected_value_is_none_when_depth_unknown():
+    """Unknown size must not read as zero value or as a large one."""
+    row = OutcomeDivergence(
+        join_key="A", team="A", kalshi_probability=0.5, consensus_probability=0.5,
+        divergence=0.0, net_edge_after_spread=0.02, resting_depth=None,
+    )
+    assert row.expected_value_at_depth is None
+
+
+def test_expected_value_is_not_a_gate():
+    """A tiny-EV row is still returned and still flagged tradeable."""
+    kalshi = [_k("Lions", 0.76, bid=0.76, ask=0.77, bid_size=1.0, ask_size=1.0)]
+    consensus = [_q("Lions", 0.7413, n_books=9)]
+    status, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert status is DivergenceStatus.SCORED
+    assert rows[0].tradeable is True
+    assert rows[0].expected_value_at_depth < 0.03
+
+
+# --- arbitrage ---------------------------------------------------------------
+
+
+def _c(team, prob, books, *, n_books=None, outcome="home"):
+    return OutcomeQuote(
+        outcome=outcome, team=team, implied_probability=prob, snapshot_time=T0,
+        n_books=n_books if n_books is not None else len(books), book_prices=books,
+    )
+
+
+def test_arbitrage_detected_across_venues():
+    """Kalshi ask 0.45 on A + a book paying +130 on B = 0.4348 -> covered for 0.885."""
+    kalshi = [_k("A", 0.46, bid=0.44, ask=0.45, ask_size=100.0)]
+    consensus = [
+        _c("A", 0.47, {"dk": -110.0}),
+        _c("B", 0.53, {"dk": 130.0}, outcome="away"),
+    ]
+    arb = detect_arbitrage(kalshi, consensus)
+    assert arb is not None
+    assert abs(arb.total_cost - (0.45 + 100.0 / 230.0)) < 1e-9
+    assert arb.gross_profit > 0
+    venues = {leg.team: leg.venue for leg in arb.legs}
+    assert venues["A"] == "kalshi"  # cheaper than the book's -110
+    assert venues["B"] == "dk"
+
+
+def test_no_arbitrage_when_prices_sum_above_one():
+    kalshi = [_k("A", 0.50, bid=0.49, ask=0.51, ask_size=100.0)]
+    consensus = [
+        _c("A", 0.50, {"dk": -110.0}),
+        _c("B", 0.50, {"dk": -110.0}, outcome="away"),
+    ]
+    assert detect_arbitrage(kalshi, consensus) is None
+
+
+def test_arbitrage_cannot_come_from_vig_stripped_probabilities():
+    """The reason arbitrage prices off raw odds.
+
+    Vig-stripped probabilities are renormalised to sum to exactly 1, so an
+    implementation reading them would find arbitrage never — or, worse, always.
+    With no raw book prices there is nothing to price, so the answer is None.
+    """
+    kalshi = [_k("A", 0.40)]  # no ask
+    consensus = [
+        _c("A", 0.40, {}), _c("B", 0.60, {}, outcome="away"),
+    ]
+    assert sum(q.implied_probability for q in consensus) == 1.0
+    assert detect_arbitrage(kalshi, consensus) is None
+
+
+def test_arbitrage_ignores_the_consensus_book_floor():
+    """A single book can still produce REAL arbitrage.
+
+    min_consensus_books gates whether a median is a trustworthy probability
+    estimate. Arbitrage needs no estimate, so the floor must not suppress it.
+    """
+    kalshi = [
+        _k("A", 0.46, bid=0.44, ask=0.45, ask_size=50.0),
+        _k("B", 0.54, bid=0.55, ask=0.57, ask_size=50.0, outcome="away"),
+    ]
+    consensus = [
+        _c("A", 0.47, {"dk": -110.0}, n_books=1),
+        _c("B", 0.53, {"dk": 130.0}, n_books=1, outcome="away"),
+    ]
+    status, _, _, _, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert status is DivergenceStatus.INSUFFICIENT_CONSENSUS  # not scoreable...
+    assert detect_arbitrage(kalshi, consensus) is not None  # ...but still arbitrage
+
+
+def test_arbitrage_requires_every_outcome_covered():
+    """An uncovered outcome means the position carries risk, so it is not arb."""
+    kalshi = [_k("A", 0.30, bid=0.29, ask=0.30, ask_size=100.0)]
+    consensus = [_c("A", 0.31, {"dk": -110.0})]  # B never priced
+    consensus.append(_c("B", 0.69, {}, outcome="away"))
+    assert detect_arbitrage(kalshi, consensus) is None
+
+
+def test_arbitrage_picks_the_best_book_not_the_median():
+    """You place the bet at the best price available, not the consensus."""
+    kalshi = [_k("A", 0.60, bid=0.59, ask=0.61, ask_size=10.0)]
+    consensus = [
+        _c("A", 0.60, {"dk": -200.0, "fd": -150.0}),
+        _c("B", 0.40, {"dk": 180.0, "fd": 250.0}, outcome="away"),
+    ]
+    arb = detect_arbitrage(kalshi, consensus)
+    assert arb is not None
+    by_team = {leg.team: leg for leg in arb.legs}
+    assert by_team["B"].venue == "fd"  # +250 beats +180
+    assert abs(by_team["B"].implied_price - 100.0 / 350.0) < 1e-9
+
+
+def test_arbitrage_reports_limiting_kalshi_depth():
+    kalshi = [_k("A", 0.46, bid=0.44, ask=0.45, ask_size=37.0)]
+    consensus = [
+        _c("A", 0.47, {"dk": -110.0}),
+        _c("B", 0.53, {"dk": 130.0}, outcome="away"),
+    ]
+    arb = detect_arbitrage(kalshi, consensus)
+    assert arb.limiting_depth == 37.0
+
+
+def test_best_trade_ranks_by_dollars_not_percentage():
+    """Live Packers/Vikings: the lower percentage is the bigger trade.
+
+    +0.9% on 1434 contracts is worth ~4x more than +1.9% on 170. Ranking by rate
+    would name the smaller one best, and best_expected_value would then not be
+    the best expected value on offer.
+    """
+    kalshi = [
+        _k("Packers", 0.4802, bid=0.48, ask=0.49, bid_size=1434.0, ask_size=1434.0),
+        _k("Vikings", 0.5198, bid=0.52, ask=0.53, bid_size=169.94, ask_size=169.94,
+           outcome="away"),
+    ]
+    consensus = [
+        _q("Packers", 0.4990, n_books=9),
+        _q("Vikings", 0.5010, n_books=9, outcome="away"),
+    ]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    ev = _event_divergence(rows)
+
+    by_team = {r.team: r for r in rows}
+    assert by_team["Vikings"].net_edge_after_spread > by_team["Packers"].net_edge_after_spread
+    assert by_team["Packers"].expected_value_at_depth > by_team["Vikings"].expected_value_at_depth
+
+    assert ev.best_trade.team == "Packers"  # dollars, not rate
+    # The headline number must equal the max available, not some other leg's.
+    assert ev.best_expected_value == max(
+        r.expected_value_at_depth for r in rows if r.expected_value_at_depth is not None
+    )
+
+
+def test_best_trade_falls_back_to_rate_without_depth():
+    kalshi = [
+        _k("A", 0.50, bid=0.48, ask=0.49),
+        _k("B", 0.50, bid=0.40, ask=0.42, outcome="away"),
+    ]
+    consensus = [
+        _q("A", 0.55, n_books=9),
+        _q("B", 0.45, n_books=9, outcome="away"),
+    ]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    ev = _event_divergence(rows)
+    assert ev.best_trade is not None
+    assert ev.best_expected_value is None  # no depth -> no dollar figure claimed
