@@ -111,4 +111,7 @@ def test_run_ingest_zero_events_noops(monkeypatch):
     # A dormant/off-season series returns no events. Graceful no-op (0 rows),
     # touching neither the DB (nothing queued) nor the network beyond the mock.
     monkeypatch.setattr(KalshiClient, "get_events", lambda self, **kwargs: [])
-    assert run_ingest(series_tickers=["KXNFLGAME"]) == 0
+    result = run_ingest(series_tickers=["KXNFLGAME"])
+    assert result.rows_attempted == 0
+    assert result.rows_written == 0
+    assert result.events_seen == 0

@@ -54,6 +54,31 @@ class Settings(BaseSettings):
     # — an excluded event is honest, a precise-looking number over one book is not.
     min_consensus_books: int = 3
 
+    # The Odds API poll interval. Separate from Kalshi's: sportsbook lines move
+    # more slowly than a live order book, and each call costs API quota, so this
+    # is deliberately less frequent. Poll ORDER does not matter — both ingestion
+    # paths run the shared matcher, so whichever arrives first creates the event.
+    odds_poll_interval_seconds: int = 900
+
+    # --- Ingest health (see scheduler/health.py) ---------------------------
+    # A pass that raises is unambiguously broken, so the failure threshold is
+    # tight: 3 consecutive failures (~15 min at a 300s Kalshi interval) escalates
+    # to ERROR. This is the signal that the 896-failure outage would have tripped.
+    ingest_max_consecutive_failures: int = 3
+
+    # Zero rows written is NOT inherently an error — the dedup trigger suppresses
+    # unchanged prices, so a quiet market legitimately writes nothing for a long
+    # time. These thresholds are therefore generous, and expressed in SECONDS of
+    # continuous silence rather than run counts, so they mean the same thing
+    # regardless of poll interval.
+    ingest_zero_write_warn_seconds: int = 3600  # ~1h quiet -> WARNING
+    ingest_zero_write_error_seconds: int = 21600  # ~6h quiet -> ERROR
+
+    # /health marks a source stale when its newest snapshot is older than this
+    # multiple of that source's poll interval. 6x absorbs a couple of transient
+    # failures without crying wolf, while still surfacing an outage in ~30 min.
+    ingest_staleness_interval_multiple: int = 6
+
     log_level: str = "INFO"
 
     @field_validator("kalshi_series_tickers", mode="before")

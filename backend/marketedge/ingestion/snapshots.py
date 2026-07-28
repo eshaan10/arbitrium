@@ -22,17 +22,24 @@ suppression stays invisible to the client, as designed.
 
 from __future__ import annotations
 
-from sqlalchemy import insert
+from sqlalchemy import func, insert, select
 from sqlalchemy.orm import Session
 
 from marketedge.db.models import OddsSnapshot
+
+
+def snapshot_count(session: Session) -> int:
+    """Total rows in ``odds_snapshots``, for measuring what a pass actually wrote."""
+    return session.execute(select(func.count()).select_from(OddsSnapshot)).scalar() or 0
 
 
 def insert_snapshots(session: Session, rows: list[dict]) -> int:
     """Append snapshot rows, letting the dedup trigger drop unchanged prices.
 
     Returns rows ATTEMPTED, not rows persisted — the trigger decides the latter
-    and deliberately does not tell us. Callers already document this.
+    and deliberately does not tell us. Use :func:`snapshot_count` around a whole
+    pass to learn what was actually written; doing it per-call would add a COUNT
+    query per event for no benefit.
     """
     if not rows:
         return 0

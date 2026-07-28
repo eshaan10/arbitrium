@@ -41,7 +41,8 @@ from marketedge.db.engine import get_session
 from marketedge.db.models import Event, OddsSnapshot
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import normalize_kalshi_event
-from marketedge.ingestion.snapshots import insert_snapshots
+from marketedge.ingestion.result import IngestResult
+from marketedge.ingestion.snapshots import insert_snapshots, snapshot_count
 from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_team
 
@@ -373,11 +374,13 @@ def ingest_event(session, event: dict, cfg: SeriesConfig) -> int:
     )
 
 
-def run_ingest(series_tickers: list[str] | None = None) -> int:
+def run_ingest(series_tickers: list[str] | None = None) -> IngestResult:
     """Fetch configured Kalshi series as events, upsert each, and append snapshots.
 
-    Returns snapshot rows attempted. Events that can't be parsed are skipped and
-    logged; only transient network/API errors propagate (so Prefect retries them).
+    Returns an :class:`IngestResult` describing what actually landed — rows
+    WRITTEN, not merely attempted, so a caller can tell a healthy quiet poll from
+    a broken one. Events that can't be parsed are skipped and logged; only
+    transient network/API errors propagate (so Prefect retries them).
     """
     series = series_tickers if series_tickers is not None else settings.kalshi_series_tickers
     if not series:
@@ -385,7 +388,7 @@ def run_ingest(series_tickers: list[str] | None = None) -> int:
             "No Kalshi series configured (KALSHI_SERIES_TICKERS is empty); skipping "
             "ingest. Set the target series to enable ingestion."
         )
-        return 0
+        return IngestResult(source="kalshi")
 
     undeclared = [s for s in series if s not in SERIES_CONFIG]
     if undeclared:
@@ -396,9 +399,12 @@ def run_ingest(series_tickers: list[str] | None = None) -> int:
 
     total = 0
     skipped = 0
+    seen = 0
+    written = 0
     with KalshiClient() as client:
         session = get_session()
         try:
+            before = snapshot_count(session)
             for series_ticker in series:
                 cfg = SERIES_CONFIG[series_ticker]
                 events = client.get_events(series_ticker=series_ticker)
@@ -408,6 +414,7 @@ def run_ingest(series_tickers: list[str] | None = None) -> int:
                         series_ticker,
                     )
                     continue
+                seen += len(events)
                 for event in events:
                     event_ticker = event.get("event_ticker", "<unknown>")
                     try:
@@ -422,14 +429,19 @@ def run_ingest(series_tickers: list[str] | None = None) -> int:
                         skipped += 1
                     total += rows
             # Only touch the DB if something was queued (keeps all-skipped runs
-            # free of an empty commit).
+            # free of an empty commit). Measure BEFORE committing, while the
+            # inserts are still visible to this transaction.
             if total:
+                written = snapshot_count(session) - before
                 session.commit()
         finally:
             session.close()
-    logger.info(
-        "Kalshi ingest complete: %d snapshot rows attempted, %d events skipped",
-        total,
-        skipped,
+    result = IngestResult(
+        source="kalshi",
+        events_seen=seen,
+        events_skipped=skipped,
+        rows_attempted=total,
+        rows_written=written,
     )
-    return total
+    logger.info("Kalshi ingest complete: %s", result)
+    return result

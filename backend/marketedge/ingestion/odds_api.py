@@ -23,15 +23,18 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
-from sqlalchemy import func, select, update
+from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from marketedge.config import settings
-from marketedge.db.models import Event, OddsSnapshot
+from marketedge.db.engine import get_session
+from marketedge.db.models import Event
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import NormalizedSnapshot, normalize_odds_api_consensus
-from marketedge.ingestion.snapshots import insert_snapshots
+from marketedge.ingestion.result import IngestResult
+from marketedge.ingestion.snapshots import insert_snapshots, snapshot_count
+from marketedge.logging_config import redact
 from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_by_name
 
@@ -71,7 +74,13 @@ class OddsApiClient:
         self.close()
 
     def get_odds(self, sport_key: str, *, regions: str = "us", markets: str = "h2h") -> list[dict]:
-        """Return events with bookmaker odds. Costs one quota unit per call."""
+        """Return events with bookmaker odds. Costs one quota unit per call.
+
+        The credential can only travel as a query parameter, so any error that
+        quotes the URL would otherwise disclose it. ``HTTPStatusError`` embeds the
+        full URL in its message, so it is re-raised redacted rather than allowed
+        to reach a log or traceback intact.
+        """
         if not self.api_key:
             raise ValueError("ODDS_API_KEY is not set")
         resp = self._client.get(
@@ -83,7 +92,12 @@ class OddsApiClient:
                 "oddsFormat": "american",
             },
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                redact(str(exc)), request=exc.request, response=exc.response
+            ) from None
         return resp.json()
 
 
@@ -239,3 +253,64 @@ def ingest_odds_event(session: Session, event: dict, sport_cfg: OddsSport) -> in
         event_id = _create_odds_only_event(session, extract)  # single-source, never dropped
 
     return _insert_consensus_snapshots(session, event_id, extract)
+
+
+def run_ingest(sport_keys: list[str] | None = None) -> IngestResult:
+    """Fetch each configured Odds API sport and append consensus snapshots.
+
+    Returns an :class:`IngestResult` reporting rows WRITTEN, so the scheduler's
+    health tracker can distinguish a quiet market from a broken pass. Per-event
+    problems are skipped and logged inside :func:`ingest_odds_event`; only
+    transient network/API errors propagate, so Prefect retries cover them.
+
+    Each sport costs one API quota unit per pass — hence the deliberately slower
+    ``odds_poll_interval_seconds``.
+    """
+    keys = sport_keys if sport_keys is not None else list(ODDS_SPORTS)
+    undeclared = [k for k in keys if k not in ODDS_SPORTS]
+    if undeclared:
+        raise ValueError(
+            f"Undeclared Odds API sport keys: {undeclared}. Add each to ODDS_SPORTS "
+            "(sport, league) before ingesting."
+        )
+    if not settings.odds_api_key:
+        logger.warning("ODDS_API_KEY is not set; skipping Odds API ingest.")
+        return IngestResult(source="odds_api")
+
+    seen = skipped = attempted = written = 0
+    with OddsApiClient() as client:
+        session = get_session()
+        try:
+            before = snapshot_count(session)
+            for sport_key in keys:
+                cfg = ODDS_SPORTS[sport_key]
+                events = client.get_odds(sport_key)
+                if not events:
+                    logger.info(
+                        "Odds API sport %s returned 0 events (off-season); nothing to ingest.",
+                        sport_key,
+                    )
+                    continue
+                seen += len(events)
+                for event in events:
+                    rows = ingest_odds_event(session, event, cfg)
+                    if rows == 0:
+                        skipped += 1
+                    attempted += rows
+            if attempted:
+                # Measured before the commit, while the inserts are still visible
+                # to this transaction.
+                written = snapshot_count(session) - before
+                session.commit()
+        finally:
+            session.close()
+
+    result = IngestResult(
+        source="odds_api",
+        events_seen=seen,
+        events_skipped=skipped,
+        rows_attempted=attempted,
+        rows_written=written,
+    )
+    logger.info("Odds API ingest complete: %s", result)
+    return result
