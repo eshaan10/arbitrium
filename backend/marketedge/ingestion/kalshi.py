@@ -38,7 +38,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from marketedge.config import settings
 from marketedge.db.engine import get_session
-from marketedge.db.models import Event, OddsSnapshot
+from marketedge.db.models import Event
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import normalize_kalshi_event
 from marketedge.ingestion.result import IngestResult

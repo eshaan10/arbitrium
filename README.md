@@ -66,7 +66,15 @@ The Odds API ──────> ingestion/odds_api.py ───┘             
 - **Divergence:** Kalshi vs sportsbook consensus, joined on `team` (never home/away, which is
   provisional for Kalshi). Events that can't be scored — one source, or a consensus over fewer than
   `MIN_CONSENSUS_BOOKS` bookmakers — are returned with an explicit status and no number, rather than
-  filtered out.
+  filtered out. Two independent axes are reported and never collapsed:
+  `divergence` (vig-stripped mids — how far apart the two sources' *beliefs* are, and the input
+  Phase 3 calibration needs) and `net_edge_after_spread` (consensus vs Kalshi's *raw executable*
+  bid/ask — what is actually capturable). On live NFL data these rank differently, and roughly half
+  of all real divergences are smaller than the spread required to capture them.
+- **Ingest health:** every pass reports rows *written*, not attempted — the dedup trigger makes those
+  wildly different numbers. Consecutive failures escalate with an `INGEST_UNHEALTHY` log marker;
+  `/health` independently reports per-source write recency straight from the append-only table, so a
+  dead poller still surfaces after a restart clears in-process counters.
 - **API:** FastAPI: `/health`, `/divergences`.
 
 ## Running locally

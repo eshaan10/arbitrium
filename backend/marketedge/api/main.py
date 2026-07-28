@@ -120,6 +120,17 @@ def health(db: Session = Depends(get_db)) -> dict:
     }
 
 
+def _r(value: float | None, places: int = 6) -> float | None:
+    """Round a probability for output.
+
+    Purely cosmetic: subtracting floats produces artifacts like
+    0.010000000000000009 for a 1-cent spread. Six decimal places is ~1e-4 of a
+    percentage point — far finer than any price we store — so nothing meaningful
+    is lost.
+    """
+    return None if value is None else round(value, places)
+
+
 @app.get("/divergences")
 def divergences(
     sport: str | None = Query(None, description="Filter to one sport, e.g. 'nfl'."),
@@ -131,6 +142,12 @@ def divergences(
         description="Minimum |kalshi - consensus|. Only scored events carry a number, "
                     "so this necessarily excludes unscored ones.",
     ),
+    tradeable_only: bool = Query(
+        False,
+        description="Only events where some edge survives crossing the Kalshi spread. "
+                    "Off by default: an untradeable divergence is still a real "
+                    "measurement and is still reported.",
+    ),
     limit: int = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -140,9 +157,16 @@ def divergences(
     one bookmaker or one source is a fact about our coverage, and hiding it would
     let a caller assume the game doesn't exist. Only ``scored`` events carry a
     ``divergence`` number — see marketedge.divergence.engine for why.
+
+    Each outcome reports two independent numbers: ``divergence`` (how far apart
+    the sources' beliefs are) and ``net_edge_after_spread`` (what is actually
+    capturable after crossing Kalshi's book). A large divergence with a negative
+    net edge is real and worth nothing; both are shown so neither can be mistaken
+    for the other.
     """
     results = compute_divergences(
-        db, sport=sport, status=status, min_divergence=min_divergence, limit=limit
+        db, sport=sport, status=status, min_divergence=min_divergence,
+        tradeable_only=tradeable_only, limit=limit,
     )
     counts: dict[str, int] = {}
     for r in results:
@@ -151,6 +175,7 @@ def divergences(
         "min_consensus_books": settings.min_consensus_books,
         "count": len(results),
         "counts_by_status": counts,
+        "tradeable_count": sum(1 for r in results if r.tradeable),
         "divergences": [
             {
                 "event_id": str(r.event_id),
@@ -163,13 +188,33 @@ def divergences(
                 "reason": r.reason,
                 "sources": r.sources,
                 "n_books": r.n_books,
-                "max_abs_divergence": r.max_abs_divergence,
+                "max_abs_divergence": _r(r.max_abs_divergence),
+                "best_net_edge": _r(r.best_net_edge),
+                "tradeable": r.tradeable,
+                # The single best fill. Outcome rows are alternative executions of
+                # one directional view, not independent bets, so callers must act
+                # on this rather than summing per-outcome edges.
+                "best_trade": (
+                    {
+                        "team": r.best_trade.team,
+                        "side": r.best_trade.trade_side,
+                        "net_edge_after_spread": _r(r.best_trade.net_edge_after_spread),
+                        "resting_depth": r.best_trade.resting_depth,
+                    }
+                    if r.best_trade
+                    else None
+                ),
                 "outcomes": [
                     {
                         "team": o.team,
-                        "kalshi_probability": o.kalshi_probability,
-                        "consensus_probability": o.consensus_probability,
-                        "divergence": o.divergence,
+                        "kalshi_probability": _r(o.kalshi_probability),
+                        "consensus_probability": _r(o.consensus_probability),
+                        "divergence": _r(o.divergence),
+                        "net_edge_after_spread": _r(o.net_edge_after_spread),
+                        "trade_side": o.trade_side,
+                        "spread": _r(o.spread),
+                        "resting_depth": o.resting_depth,
+                        "tradeable": o.tradeable,
                     }
                     for o in r.outcomes
                 ],

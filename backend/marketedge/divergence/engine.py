@@ -27,6 +27,22 @@ carrying an explicit status that says how much to trust it:
     line up (a team resolved differently on each side). A real data bug; flagged
     loudly rather than scored across mismatched outcomes.
 
+Divergence and net edge are TWO AXES, never collapsed into one number
+(design principle 2):
+
+* **Divergence** compares vig-stripped mid probabilities. It measures how far
+  apart the two sources' beliefs are — the right input for Phase 3 calibration,
+  which needs every disagreement graded, including ones nobody could trade.
+* **Net edge after spread** compares the consensus probability against Kalshi's
+  RAW executable bid/ask. A Kalshi contract settles at $1, so its dollar price is
+  already a probability; vig-stripping it here would be wrong, because you
+  transact at the touch, not at a normalised mid.
+
+These routinely disagree. On live NFL data most outcomes show a real divergence
+that is SMALLER than the spread needed to capture it — a correct measurement of
+a genuine disagreement that is nevertheless worth nothing. Reporting only the
+divergence would make those look like opportunities.
+
 Design principles 1 and 3 are the whole point of this module: uncertainty is
 labelled, not filtered, and no probability is emitted without the context needed
 to judge it.
@@ -66,15 +82,59 @@ class OutcomeQuote:
     snapshot_time: datetime
     n_books: int | None = None  # consensus only: bookmakers behind the median
 
+    # Kalshi only: the EXECUTABLE side of the book. These are raw dollar prices,
+    # deliberately NOT vig-stripped — see the module docstring on why the two
+    # numbers answer different questions.
+    bid: float | None = None
+    ask: float | None = None
+    bid_size: float | None = None
+    ask_size: float | None = None
+
     @property
     def join_key(self) -> str:
         """Team identity, falling back to outcome for team-less outcomes ('draw')."""
         return self.team if self.team is not None else f"__{self.outcome}__"
 
+    @property
+    def spread(self) -> float | None:
+        """Cost of crossing this book, in probability terms."""
+        if self.bid is None or self.ask is None:
+            return None
+        return self.ask - self.bid
+
+    @property
+    def resting_depth(self) -> float | None:
+        """Weakest-link resting size at the touch.
+
+        A NEW measure, deliberately not a redefinition of the stored
+        ``liquidity_score``: that column means Kalshi's ``liquidity_dollars``
+        field and keeps meaning exactly that, so no already-written row changes
+        meaning. ``liquidity_dollars`` happens to be 0 on every observed market
+        while real size rests at the touch, so this is derived from the sizes
+        preserved in ``order_book_depth`` instead. Weakest-link (min of the two
+        sides) matches how the ingestion layer already treats depth: one deep
+        side cannot lend false confidence to a book you can't get out of.
+        """
+        sizes = [s for s in (self.bid_size, self.ask_size) if s is not None]
+        return min(sizes) if sizes else None
+
 
 @dataclass(frozen=True)
 class OutcomeDivergence:
-    """Per-outcome comparison. ``divergence`` is None unless the event is scored."""
+    """Per-outcome comparison.
+
+    Two independent axes, never conflated (design principle 2):
+
+    * ``divergence`` — how far apart the two sources' BELIEFS are, comparing
+      vig-stripped mid probabilities. A measurement.
+    * ``net_edge_after_spread`` — what is actually capturable after paying to
+      cross Kalshi's book, comparing the consensus probability against the raw
+      executable bid/ask. A trade.
+
+    A large divergence with a negative net edge is a real, correctly-measured
+    disagreement that you cannot profit from. Both numbers are reported; neither
+    is allowed to stand in for the other.
+    """
 
     join_key: str
     team: str | None
@@ -82,9 +142,20 @@ class OutcomeDivergence:
     consensus_probability: float | None
     divergence: float | None  # kalshi - consensus; >0 = Kalshi prices it higher
 
+    # Execution axis. None when the book side is unknown or the event is unscored.
+    net_edge_after_spread: float | None = None
+    trade_side: str | None = None  # 'buy_kalshi' | 'sell_kalshi'
+    spread: float | None = None
+    resting_depth: float | None = None
+
     @property
     def abs_divergence(self) -> float | None:
         return None if self.divergence is None else abs(self.divergence)
+
+    @property
+    def tradeable(self) -> bool:
+        """Whether any edge survives crossing the spread."""
+        return self.net_edge_after_spread is not None and self.net_edge_after_spread > 0
 
 
 @dataclass(frozen=True)
@@ -101,6 +172,67 @@ class EventDivergence:
     n_books: int | None
     max_abs_divergence: float | None
     outcomes: list[OutcomeDivergence]
+
+    @property
+    def best_net_edge(self) -> float | None:
+        """Best capturable edge across this event's outcomes, if any book is known.
+
+        MAX, never a sum, and this is a correctness requirement rather than a
+        conservative choice. An event's outcomes are mutually exclusive, so their
+        per-outcome rows are ALTERNATIVE EXECUTIONS of the same directional view,
+        not independent opportunities. Selling Yes on one side of a two-way market
+        is economically the same position as buying Yes on the other, at a
+        possibly better price — which is exactly why both rows can show a positive
+        edge at once. Adding them would double-count a single bet.
+
+        (Observed live: Packers/Vikings showed +0.90% buying the Packers' book and
+        +1.90% selling the Vikings' book. One position, two routes; the second is
+        simply the cheaper fill. Phase 4's combo optimiser must treat these as one
+        leg — see design principle 4 on stating independence assumptions.)
+        """
+        edges = [
+            o.net_edge_after_spread
+            for o in self.outcomes
+            if o.net_edge_after_spread is not None
+        ]
+        return max(edges) if edges else None
+
+    @property
+    def best_trade(self) -> OutcomeDivergence | None:
+        """The single outcome row offering the best fill — the one leg to take."""
+        candidates = [o for o in self.outcomes if o.tradeable]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda o: o.net_edge_after_spread or 0.0)
+
+    @property
+    def tradeable(self) -> bool:
+        return any(o.tradeable for o in self.outcomes)
+
+
+def net_edge(kalshi: OutcomeQuote, consensus_probability: float) -> tuple[float | None, str | None]:
+    """Best capturable edge on one outcome, and which side to take it.
+
+    A Kalshi contract settles at $1, so its raw dollar price IS the executable
+    probability — no vig-stripping belongs here. Vig-stripping normalises across
+    an event's markets to answer "what does Kalshi BELIEVE"; this function asks
+    "what can I actually transact at", and the answer is the raw touch:
+
+      * buy Yes at the ask  -> EV = p_consensus - ask
+      * sell Yes at the bid -> EV = bid - p_consensus
+
+    Since bid <= ask at most one is positive, so the max is the only candidate.
+    A non-positive result means the disagreement is real but smaller than the
+    cost of crossing — the common case, and the reason this axis exists.
+
+    Returns (None, None) when the book is unknown; a quote without bid/ask cannot
+    be assessed for tradeability and must not be assumed tradeable.
+    """
+    if kalshi.bid is None or kalshi.ask is None:
+        return None, None
+    buy = consensus_probability - kalshi.ask
+    sell = kalshi.bid - consensus_probability
+    return (buy, "buy_kalshi") if buy >= sell else (sell, "sell_kalshi")
 
 
 def _consensus_book_count(quotes: list[OutcomeQuote]) -> int | None:
@@ -132,10 +264,10 @@ def score_event(
         out = []
         for key in sorted(set(kalshi) | set(consensus)):
             k, c = kalshi.get(key), consensus.get(key)
-            div = (
-                k.implied_probability - c.implied_probability
-                if scored and k is not None and c is not None
-                else None
+            comparable = scored and k is not None and c is not None
+            div = k.implied_probability - c.implied_probability if comparable else None
+            edge, side = (
+                net_edge(k, c.implied_probability) if comparable else (None, None)
             )
             out.append(
                 OutcomeDivergence(
@@ -144,6 +276,10 @@ def score_event(
                     kalshi_probability=k.implied_probability if k else None,
                     consensus_probability=c.implied_probability if c else None,
                     divergence=div,
+                    net_edge_after_spread=edge,
+                    trade_side=side if edge is not None and edge > 0 else None,
+                    spread=k.spread if k else None,
+                    resting_depth=k.resting_depth if k else None,
                 )
             )
         return out
@@ -189,9 +325,15 @@ def score_event(
         (r.abs_divergence for r in scored_rows if r.abs_divergence is not None),
         default=None,
     )
+    tradeable = [r for r in scored_rows if r.tradeable]
+    reason = f"both sources present; consensus over {n_books} bookmakers"
+    if not tradeable:
+        # Scored and real, just not capturable. Said explicitly so nobody reads
+        # a divergence number as an opportunity.
+        reason += "; no edge survives the Kalshi spread"
     return (
         DivergenceStatus.SCORED,
-        f"both sources present; consensus over {n_books} bookmakers",
+        reason,
         n_books,
         scored_rows,
         max_abs,
@@ -237,18 +379,32 @@ def _latest_quotes(session: Session, event_ids: list[uuid_mod.UUID]) -> dict[
     )
     out: dict[tuple[uuid_mod.UUID, str], list[OutcomeQuote]] = {}
     for r in session.execute(stmt).all():
-        depth = r.order_book_depth or {}
-        n_books = depth.get("n_books") if isinstance(depth, dict) else None
+        depth = r.order_book_depth if isinstance(r.order_book_depth, dict) else {}
         out.setdefault((r.event_id, r.source), []).append(
             OutcomeQuote(
                 outcome=r.outcome,
                 team=r.team,
                 implied_probability=float(r.implied_probability),
                 snapshot_time=r.snapshot_time,
-                n_books=n_books,
+                n_books=depth.get("n_books"),
+                # Kalshi's executable book. Absent for consensus rows, which have
+                # no single book to cross.
+                bid=_as_float(depth.get("yes_bid")),
+                ask=_as_float(depth.get("yes_ask")),
+                bid_size=_as_float(depth.get("yes_bid_size")),
+                ask_size=_as_float(depth.get("yes_ask_size")),
             )
         )
     return out
+
+
+def _as_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def compute_divergences(
@@ -257,13 +413,18 @@ def compute_divergences(
     sport: str | None = None,
     status: DivergenceStatus | None = None,
     min_divergence: float | None = None,
+    tradeable_only: bool = False,
     limit: int = 200,
 ) -> list[EventDivergence]:
-    """Score every scheduled event, newest kickoff first among the biggest gaps.
+    """Score every scheduled event, biggest capturable edge first.
 
     Filters are applied AFTER scoring so that a filter can never turn "we don't
     trust this" into "this doesn't exist" — an event excluded by ``status`` was
     still evaluated and still says why.
+
+    Ordering leads on net edge rather than raw divergence: the largest
+    disagreement is usually not the most actionable one, and sorting by
+    divergence alone would put uncapturable gaps at the top of the list.
     """
     ev_stmt = select(
         Event.id,
@@ -313,9 +474,18 @@ def compute_divergences(
             r for r in results
             if r.max_abs_divergence is not None and r.max_abs_divergence >= min_divergence
         ]
+    if tradeable_only:
+        results = [r for r in results if r.tradeable]
 
+    # Tradeable events first (ranked by capturable edge), then the rest ranked by
+    # raw divergence. Keeping the unscored tail visible rather than truncating it
+    # is the same rule as everywhere else here: excluded is not the same as absent.
     results.sort(
-        key=lambda r: (r.max_abs_divergence is not None, r.max_abs_divergence or 0.0),
+        key=lambda r: (
+            r.tradeable,
+            r.best_net_edge if r.tradeable else 0.0,
+            r.max_abs_divergence or 0.0,
+        ),
         reverse=True,
     )
     return results[:limit]

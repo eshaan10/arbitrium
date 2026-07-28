@@ -191,3 +191,159 @@ def test_latest_snapshot_wins(db_session):
     row = [r for r in compute_divergences(db_session, sport="nfl") if r.event_id == ev.id][0]
     bills = {o.team: o for o in row.outcomes}["Buffalo Bills"]
     assert bills.kalshi_probability == 0.70  # not the stale 0.50
+
+
+# --- the execution axis: net edge after spread -------------------------------
+
+
+def _k(team, prob, *, bid=None, ask=None, bid_size=None, ask_size=None, outcome="home"):
+    return OutcomeQuote(
+        outcome=outcome, team=team, implied_probability=prob, snapshot_time=T0,
+        bid=bid, ask=ask, bid_size=bid_size, ask_size=ask_size,
+    )
+
+
+def test_edge_smaller_than_spread_is_not_tradeable():
+    """The common live case: a real disagreement worth nothing.
+
+    Kalshi mid 0.50 vs consensus 0.52 — a 2pt divergence. But the ask is 0.53,
+    so buying costs more than the books think it is worth.
+    """
+    kalshi = [_k("Chiefs", 0.50, bid=0.47, ask=0.53)]
+    consensus = [_q("Chiefs", 0.52, n_books=9)]
+    status, reason, _, rows, _ = score_event(
+        kalshi_quotes=kalshi, consensus_quotes=consensus
+    )
+    assert status is DivergenceStatus.SCORED
+    row = rows[0]
+    assert row.divergence is not None  # the measurement survives
+    assert row.tradeable is False
+    assert row.net_edge_after_spread < 0
+    assert row.trade_side is None
+    assert "no edge survives" in reason
+
+
+def test_edge_larger_than_spread_is_tradeable_on_the_buy_side():
+    """Books say 0.60, Kalshi asks 0.53 -> buy Kalshi for a 7pt edge."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.47, ask=0.53)]
+    consensus = [_q("Chiefs", 0.60, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    row = rows[0]
+    assert row.tradeable is True
+    assert abs(row.net_edge_after_spread - 0.07) < 1e-9
+    assert row.trade_side == "buy_kalshi"
+
+
+def test_tradeable_on_the_sell_side():
+    """Books say 0.40, Kalshi bids 0.47 -> sell Kalshi for a 7pt edge."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.47, ask=0.53)]
+    consensus = [_q("Chiefs", 0.40, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    row = rows[0]
+    assert row.tradeable is True
+    assert abs(row.net_edge_after_spread - 0.07) < 1e-9
+    assert row.trade_side == "sell_kalshi"
+
+
+def test_net_edge_uses_raw_book_not_vig_stripped_mid():
+    """The distinction that makes this axis honest.
+
+    implied_probability is vig-stripped (belief); bid/ask are raw (execution).
+    A quote whose stripped mid differs from its raw touch must price off the
+    RAW side, or the edge is fiction.
+    """
+    # Stripped mid says 0.50, but the raw book is far away at 0.60/0.62.
+    kalshi = [_k("Chiefs", 0.50, bid=0.60, ask=0.62)]
+    consensus = [_q("Chiefs", 0.55, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    row = rows[0]
+    # Sell at 0.60 against a 0.55 belief = +0.05. Using the stripped mid would
+    # have said 0.55-0.50 = +0.05 buy, i.e. the wrong SIDE entirely.
+    assert row.trade_side == "sell_kalshi"
+    assert abs(row.net_edge_after_spread - 0.05) < 1e-9
+
+
+def test_unknown_book_is_not_assumed_tradeable():
+    """No bid/ask -> tradeability is unknown, which must never read as yes."""
+    kalshi = [_k("Chiefs", 0.50)]  # no book
+    consensus = [_q("Chiefs", 0.60, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    row = rows[0]
+    assert row.divergence is not None
+    assert row.net_edge_after_spread is None
+    assert row.tradeable is False
+
+
+def test_unscored_events_carry_no_edge_either():
+    """The thin-consensus gate must suppress the trade number too."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.40, ask=0.42)]
+    consensus = [_q("Chiefs", 0.60, n_books=1)]  # below the floor
+    status, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert status is DivergenceStatus.INSUFFICIENT_CONSENSUS
+    assert rows[0].net_edge_after_spread is None
+    assert rows[0].tradeable is False
+
+
+def test_resting_depth_is_weakest_link_and_not_liquidity_score():
+    q = _k("Chiefs", 0.50, bid=0.47, ask=0.53, bid_size=50.0, ask_size=221.0)
+    assert q.resting_depth == 50.0  # min, not max, not sum
+    assert abs(q.spread - 0.06) < 1e-9
+
+
+def test_spread_and_depth_are_none_without_a_book():
+    q = _k("Chiefs", 0.50)
+    assert q.spread is None
+    assert q.resting_depth is None
+
+
+def test_two_way_outcomes_are_one_bet_not_two():
+    """Both sides of a two-way market can show a positive edge simultaneously.
+
+    Selling Yes on one side IS buying Yes on the other, at a possibly better
+    price. The event-level rollup must take the MAX (the better fill), never the
+    sum, or a single position is counted twice. Mirrors live Packers/Vikings.
+    """
+    kalshi = [
+        _k("Packers", 0.4802, bid=0.48, ask=0.49),
+        _k("Vikings", 0.5198, bid=0.52, ask=0.53, outcome="away"),
+    ]
+    consensus = [
+        _q("Packers", 0.4990, n_books=9),
+        _q("Vikings", 0.5010, n_books=9, outcome="away"),
+    ]
+    status, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert status is DivergenceStatus.SCORED
+
+    by_team = {r.team: r for r in rows}
+    assert by_team["Packers"].tradeable and by_team["Vikings"].tradeable
+    assert abs(by_team["Packers"].net_edge_after_spread - 0.0090) < 1e-9
+    assert abs(by_team["Vikings"].net_edge_after_spread - 0.0190) < 1e-9
+
+    ev = _event_divergence(rows)
+    # MAX, not 0.0090 + 0.0190 = 0.028.
+    assert abs(ev.best_net_edge - 0.0190) < 1e-9
+    assert ev.best_trade.team == "Vikings"
+    assert ev.best_trade.trade_side == "sell_kalshi"
+
+
+def _event_divergence(rows):
+    import uuid
+
+    from marketedge.divergence.engine import EventDivergence
+    return EventDivergence(
+        event_id=uuid.uuid4(), sport="nfl", league="NFL",
+        home_team="Vikings", away_team="Packers", scheduled_start=T0,
+        status=DivergenceStatus.SCORED, reason="", sources=["consensus", "kalshi"],
+        n_books=9, max_abs_divergence=0.0188, outcomes=rows,
+    )
+
+
+def test_best_trade_is_none_when_nothing_is_tradeable():
+    kalshi = [_k("Chiefs", 0.50, bid=0.47, ask=0.53)]
+    consensus = [_q("Chiefs", 0.52, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    ev = _event_divergence(rows)
+    assert ev.tradeable is False
+    assert ev.best_trade is None
+    # A negative best_net_edge is still reported — it says HOW FAR from tradeable.
+    assert ev.best_net_edge is not None and ev.best_net_edge < 0
