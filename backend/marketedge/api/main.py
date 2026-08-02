@@ -7,17 +7,18 @@ Phase 2 adds /divergences. Remaining endpoints (/performance, /combos,
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from marketedge.config import settings
 from marketedge.db.engine import SessionLocal, engine
-from marketedge.db.models import OddsSnapshot
+from marketedge.db.models import Event, OddsSnapshot
 from marketedge.divergence.engine import DivergenceStatus, compute_divergences
 from marketedge.ingestion.resolution import PendingSummary, pending_resolution
 from marketedge.logging_config import configure_logging
@@ -230,6 +231,11 @@ def divergences(
                 "reason": r.reason,
                 "sources": r.sources,
                 "n_books": r.n_books,
+                # Provenance: is home/away still Kalshi's provisional guess, or
+                # confirmed against The Odds API?
+                "home_away_source": r.home_away_source,
+                "kalshi_event_ticker": r.kalshi_event_ticker,
+                "odds_api_event_id": r.odds_api_event_id,
                 "max_abs_divergence": _r(r.max_abs_divergence),
                 "best_net_edge": _r(r.best_net_edge),
                 "tradeable": r.tradeable,
@@ -281,6 +287,9 @@ def divergences(
                         "spread": _r(o.spread),
                         "resting_depth": o.resting_depth,
                         "expected_value_at_depth": _r(o.expected_value_at_depth, 4),
+                        # Raw per-book American odds, so "9 books" can be shown
+                        # as nine named prices instead of an abstract count.
+                        "books": o.book_prices,
                         "tradeable": o.tradeable,
                     }
                     for o in r.outcomes
@@ -288,6 +297,58 @@ def divergences(
             }
             for r in results
         ],
+    }
+
+
+@app.get("/events/{event_id}/history")
+def event_history(
+    event_id: uuid.UUID,
+    limit: int = Query(400, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Append-only price history for one event, as a series per source and team.
+
+    Deliberately a SEPARATE endpoint rather than a field on /divergences: history
+    is only wanted when someone opens a single event, and inlining it would make
+    the list response grow without bound as snapshots accumulate.
+
+    Series are short right now, and honestly so — the dedup trigger records only
+    genuine price CHANGES, and adaptive polling drops to daily when kickoff is
+    weeks away. A flat series means the price genuinely did not move, not that
+    collection failed; ``points`` is returned so a caller can say which.
+    """
+    ev = db.get(Event, event_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="Unknown event")
+
+    rows = db.execute(
+        select(
+            OddsSnapshot.source,
+            OddsSnapshot.team,
+            OddsSnapshot.implied_probability,
+            OddsSnapshot.snapshot_time,
+        )
+        .where(OddsSnapshot.event_id == event_id)
+        .order_by(OddsSnapshot.snapshot_time, OddsSnapshot.id)
+        .limit(limit)
+    ).all()
+
+    series: dict[str, dict] = {}
+    for r in rows:
+        key = f"{r.source}|{r.team or 'draw'}"
+        s = series.setdefault(
+            key, {"source": r.source, "team": r.team, "points": []}
+        )
+        s["points"].append(
+            {"t": r.snapshot_time.isoformat(), "p": float(r.implied_probability)}
+        )
+
+    return {
+        "event_id": str(event_id),
+        "home_team": ev.home_team,
+        "away_team": ev.away_team,
+        "series": list(series.values()),
+        "total_points": len(rows),
     }
 
 

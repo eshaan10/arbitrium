@@ -173,10 +173,85 @@
   footer { margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--border);
     color: var(--muted); font-size: 11.5px; line-height: 1.7; }
 
+  .row[role="button"] { cursor: pointer; }
+  .row[role="button"]:focus-visible { outline: 2px solid var(--tradeable); outline-offset: 2px; }
+
+  /* ---------- detail panel ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.62); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 40; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100vw);
+    background: var(--bg); border-left: 1px solid var(--border-lit); z-index: 50;
+    transform: translateX(100%); transition: transform .2s cubic-bezier(.4,0,.2,1);
+    overflow-y: auto; overflow-x: hidden; padding: 22px 24px 40px;
+  }
+  .panel.open { transform: translateX(0); }
+  .panel-close {
+    position: absolute; top: 16px; right: 18px; background: var(--surface);
+    border: 1px solid var(--border-lit); color: var(--text-dim); border-radius: 7px;
+    width: 30px; height: 30px; font-size: 16px; cursor: pointer; line-height: 1;
+    font-family: inherit;
+  }
+  .panel-close:hover { color: var(--text); border-color: var(--muted); }
+
+  .verdict {
+    border-radius: 10px; padding: 14px 16px; margin: 14px 0 20px; font-size: 14.5px;
+    line-height: 1.5; border: 1px solid var(--border-lit); background: var(--surface);
+  }
+  .verdict.v-arb { border-color: var(--arb); color: #ffd9e1;
+    background: linear-gradient(180deg, var(--arb-glow), transparent), var(--surface); }
+  .verdict.v-trade { border-color: rgba(227,61,92,.5); color: #ffc9d4; }
+  .verdict.v-none { color: var(--text-dim); }
+  .verdict .vlabel { display: block; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); margin-bottom: 5px; }
+
+  .sec { margin: 22px 0 0; }
+  .sec > h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .side { background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 12px 14px; }
+  .side .who { font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; }
+  .side .team { font-size: 13.5px; font-weight: 600; margin: 4px 0 8px; }
+  .side .pair { display: flex; justify-content: space-between; font-size: 13px;
+    font-variant-numeric: tabular-nums; padding: 3px 0; }
+  .side .pair span:first-child { color: var(--muted); }
+
+  .spark { display: block; width: 100%; height: 48px; margin-top: 8px; }
+  .spark-note { font-size: 10.5px; color: var(--muted); margin-top: 5px; }
+
+  .explain { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 12px 14px; margin-bottom: 8px; }
+  .explain .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .explain .name { font-size: 13px; font-weight: 600; }
+  .explain .val { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums;
+    color: var(--signal); }
+  .explain .val.neg, .explain .val.na { color: var(--muted); font-weight: 450; }
+  .explain p { margin: 5px 0 0; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+
+  table.books { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.books th { text-align: left; color: var(--muted); font-weight: 500; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: .05em; padding: 0 8px 6px 0; }
+  table.books td { padding: 5px 8px 5px 0; border-top: 1px solid var(--border);
+    font-variant-numeric: tabular-nums; }
+  table.books td.best { color: var(--signal); font-weight: 600; }
+
+  dl.meta { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0;
+    font-size: 12.5px; }
+  dl.meta dt { color: var(--muted); }
+  dl.meta dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .pill { font-size: 10.5px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--border-lit);
+    color: var(--text-dim); }
+  .pill.auth { color: #ffc9d4; border-color: rgba(227,61,92,.5); }
+
   @media (max-width: 900px) {
     .row { grid-template-columns: 1fr; align-items: start; }
     .badges { flex-direction: row; align-items: center; }
     .metrics { grid-template-columns: repeat(3, 1fr); }
+    .compare { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -198,6 +273,15 @@
   <div id="tiles" class="tiles" hidden></div>
   <div id="filters" class="filters" hidden></div>
   <div id="content"></div>
+</div>
+
+<div id="scrim" class="scrim"></div>
+<aside id="panel" class="panel" role="dialog" aria-modal="true" aria-label="Event detail" hidden>
+  <button id="panel-close" class="panel-close" aria-label="Close detail">&times;</button>
+  <div id="panel-body"></div>
+</aside>
+
+<div style="display:none">
 
   <footer>
     <strong style="color:var(--text-dim)">Divergence</strong> compares vig-stripped mid prices — how far
@@ -220,6 +304,8 @@ const tilesEl = el("tiles"), filtersEl = el("filters");
 let ALL = [];
 let filterSport = "all";
 let filterKind = "all";
+let MIN_BOOKS = 3;  // overwritten from the API response
+let openedFromUrl = false;
 
 const setStatus = (kind, text) => {
   statusEl.className = "status " + kind;
@@ -296,7 +382,8 @@ function rowFor(d) {
     ? `${d.best_trade.side === "sell_kalshi" ? "sell" : "buy"} ${esc(d.best_trade.team)}`
     : null;
 
-  return `<div class="${cls}" style="opacity:${opacityOf(d)}">
+  return `<div class="${cls}" style="opacity:${opacityOf(d)}" role="button" tabindex="0"
+    data-event-id="${esc(d.event_id)}" aria-label="Open detail for ${esc(d.away_team)} at ${esc(d.home_team)}">
     <div>
       <div class="matchup">${esc(d.away_team)}<span class="at">@</span>${esc(d.home_team)}</div>
       <div class="sub">${esc((d.sport || "").toUpperCase())} · ${kickoff(d.scheduled_start)}${trade ? " · " + trade : ""}</div>
@@ -392,6 +479,260 @@ function renderRows(list) {
     ((b.max_abs_divergence ?? 0) - (a.max_abs_divergence ?? 0))
   );
   contentEl.innerHTML = `<div class="rows">${sorted.map(rowFor).join("")}</div>`;
+
+  // Clicking a row opens its detail. Badges are excluded so they stay pure
+  // labels — the filters above are how you act on them.
+  contentEl.querySelectorAll(".row[data-event-id]").forEach(node => {
+    const open = (e) => {
+      if (e.target.closest(".badges")) return;
+      const d = ALL.find(x => x.event_id === node.dataset.eventId);
+      if (d) openPanel(d, node);
+    };
+    node.addEventListener("click", open);
+    node.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
+    });
+  });
+}
+
+/* ---------------- detail panel ---------------- */
+
+const panel = el("panel"), scrim = el("scrim"), panelBody = el("panel-body");
+let lastFocused = null;
+
+function closePanel() {
+  panel.classList.remove("open");
+  scrim.classList.remove("open");
+  setTimeout(() => { panel.hidden = true; }, 200);
+  const u = new URL(location.href);
+  u.searchParams.delete("event");
+  history.replaceState(null, "", u);
+  if (lastFocused) lastFocused.focus();
+}
+el("panel-close").addEventListener("click", closePanel);
+scrim.addEventListener("click", closePanel);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && panel.classList.contains("open")) closePanel();
+});
+
+const americanStr = (v) => (v > 0 ? "+" : "") + Math.round(v);
+const impliedFromAmerican = (v) => (v > 0 ? 100 / (v + 100) : -v / (-v + 100));
+
+/* Why an event carries no numbers — answered specifically, not with dashes. */
+function unscoreableReason(d) {
+  if (d.status === "single_source_no_divergence") {
+    const only = (d.sources || [])[0];
+    if (only === "kalshi")
+      return "Only Kalshi has priced this game. No sportsbook has posted a line yet, so there is no second opinion to compare against — common for games still weeks out, and for NFL preseason, which the regular-season odds feed does not cover.";
+    if (only === "consensus")
+      return "Only sportsbooks have priced this game; Kalshi has not listed a market for it. Nothing to compare against on the prediction-market side.";
+    return "Only one source priced this game, so there is nothing to compare against.";
+  }
+  if (d.status === "insufficient_consensus")
+    return `The "consensus" here is a median over just ${d.n_books ?? 0} bookmaker(s), below the floor of ${MIN_BOOKS}. A median over one or two books is not a consensus, so the observed prices are shown but no divergence is scored — a precise-looking number would get used regardless of any warning next to it.`;
+  if (d.status === "incomparable_outcomes")
+    return "The two sources' outcomes do not line up — a team resolved differently on each side. This is a data bug and is flagged rather than scored across mismatched outcomes.";
+  return null;
+}
+
+/* The one line to read if you read nothing else. Generated from THIS event's
+   numbers — every branch quotes a real value, none is a generic disclaimer. */
+function verdictFor(d) {
+  if (d.is_arbitrage) {
+    const gp = (d.arbitrage.gross_profit * 100).toFixed(2);
+    const venues = [...new Set(d.arbitrage.legs.map(l => l.venue))].join(" + ");
+    return { cls: "v-arb", text:
+      `Genuine arbitrage — covering both outcomes across ${venues} costs `
+      + `${(d.arbitrage.total_cost * 100).toFixed(1)}¢ for a $1 payout, locking in about `
+      + `${gp}% gross whoever wins. That figure is before fees and execution risk, and both `
+      + `legs must fill at these prices; a gap this thin is easily erased by either.` };
+  }
+  if (d.tradeable) {
+    const bt = d.best_trade;
+    const ev = d.best_expected_value;
+    const evTxt = ev == null ? "an unknown amount"
+      : ev < 0.5 ? `only about $${ev.toFixed(2)} on the size currently resting`
+      : `roughly $${ev.toFixed(2)} if you fill the whole resting size`;
+    return { cls: "v-trade", text:
+      `Tradeable — ${bt.side === "sell_kalshi" ? "selling" : "buying"} ${bt.team} on Kalshi `
+      + `clears the spread by ${(bt.net_edge_after_spread * 100).toFixed(2)}%, worth ${evTxt}. `
+      + (ev != null && ev < 0.5
+          ? "The percentage looks healthy but the book is thin, so the actual money on offer is small."
+          : "This assumes the sportsbook consensus is the better probability estimate — it is a directional bet, not a sure thing.") };
+  }
+  if (d.status === "scored") {
+    const div = (d.max_abs_divergence * 100).toFixed(2);
+    const ne = d.best_net_edge;
+    return { cls: "v-none", text:
+      `Real disagreement, but not capturable — the two sources differ by ${div}%, and after `
+      + `crossing Kalshi's spread the best available edge is ${(ne * 100).toFixed(2)}%. `
+      + `The measurement is sound; there is simply no money in it at these prices.` };
+  }
+  if (d.status === "insufficient_consensus")
+    return { cls: "v-none", text:
+      `Not enough sportsbook coverage to trust a number yet — only ${d.n_books ?? 0} book(s) are `
+      + `quoting, below the floor of ${MIN_BOOKS}. The prices below are real observations, but a `
+      + `divergence measured against them would be noise.` };
+  if (d.status === "incomparable_outcomes")
+    return { cls: "v-none", text:
+      "Cannot be compared — the two sources disagree about which teams are playing. A data problem, not a market signal." };
+  const only = (d.sources || [])[0] === "kalshi" ? "Kalshi" : "the sportsbooks";
+  return { cls: "v-none", text:
+    `Single-source event — only ${only} has priced this game, so no comparison is possible yet. `
+    + `It is listed rather than hidden so its absence from the scored set is visible.` };
+}
+
+function sparkline(points, color) {
+  if (!points || points.length < 2) return "";
+  const W = 260, H = 48, PAD = 3;
+  const ps = points.map(p => p.p);
+  const lo = Math.min(...ps), hi = Math.max(...ps);
+  const span = (hi - lo) || 0.02;
+  const x = (i) => PAD + (i / (points.length - 1)) * (W - 2 * PAD);
+  const y = (v) => H - PAD - ((v - lo) / span) * (H - 2 * PAD);
+  const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.p).toFixed(1)}`).join("");
+  const dots = points.map((p, i) =>
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="1.8" fill="${color}" opacity=".9"/>`).join("");
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"
+      stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
+}
+
+function sideCard(label, team, o, hist, color) {
+  const key = (src) => (hist?.series || []).find(s => s.source === src && s.team === team);
+  const series = key(label === "Kalshi" ? "kalshi" : "consensus");
+  const prob = label === "Kalshi" ? o?.kalshi_probability : o?.consensus_probability;
+  const pts = series?.points || [];
+  // A flat or absent series means the price genuinely didn't move, not that
+  // collection failed — say which rather than showing an empty box.
+  const note = pts.length >= 2
+    ? `${pts.length} recorded price changes`
+    : pts.length === 1 ? "one observation — price hasn't moved since"
+    : "no history recorded yet";
+  return `<div class="side">
+    <div class="who">${esc(label)}</div>
+    <div class="team">${esc(team)}</div>
+    <div class="pair"><span>Implied</span><span>${prob == null ? "—" : (prob * 100).toFixed(2) + "%"}</span></div>
+    ${label === "Kalshi" && o?.spread != null
+      ? `<div class="pair"><span>Spread</span><span>${(o.spread * 100).toFixed(1)}¢</span></div>` : ""}
+    ${label !== "Kalshi" && o?.books
+      ? `<div class="pair"><span>Books</span><span>${Object.keys(o.books).length}</span></div>` : ""}
+    ${sparkline(pts, color)}
+    <div class="spark-note">${note}</div>
+  </div>`;
+}
+
+function booksTable(outcomes) {
+  const rows = outcomes.filter(o => o.books && Object.keys(o.books).length);
+  if (!rows.length) return "";
+  const allBooks = [...new Set(rows.flatMap(o => Object.keys(o.books)))].sort();
+  // Mark the best price per outcome — the one arbitrage would actually take.
+  const best = {};
+  rows.forEach(o => {
+    let bk = null, bp = Infinity;
+    for (const [b, v] of Object.entries(o.books)) {
+      const ip = impliedFromAmerican(v);
+      if (ip < bp) { bp = ip; bk = b; }
+    }
+    best[o.team] = bk;
+  });
+  return `<table class="books"><thead><tr><th>Book</th>
+    ${rows.map(o => `<th>${esc(o.team)}</th>`).join("")}</tr></thead><tbody>
+    ${allBooks.map(b => `<tr><td>${esc(b)}</td>${rows.map(o => {
+      const v = o.books[b];
+      if (v == null) return "<td>—</td>";
+      const isBest = best[o.team] === b;
+      return `<td class="${isBest ? "best" : ""}" title="${(impliedFromAmerican(v) * 100).toFixed(1)}% implied">
+        ${americanStr(v)}${isBest ? " ★" : ""}</td>`;
+    }).join("")}</tr>`).join("")}
+  </tbody></table>
+  <div class="spark-note">★ = best available price for that outcome — the one an arbitrage would take.
+  Raw American odds, vig included (the consensus above is vig-stripped).</div>`;
+}
+
+function explainRow(name, value, isNeg, text) {
+  const na = value === null || value === undefined;
+  return `<div class="explain">
+    <div class="top"><span class="name">${esc(name)}</span>
+      <span class="val ${na ? "na" : (isNeg ? "neg" : "")}">${na ? "—" : esc(value)}</span></div>
+    <p>${text}</p></div>`;
+}
+
+async function openPanel(d, trigger) {
+  lastFocused = trigger || null;
+  const u = new URL(location.href);
+  u.searchParams.set("event", d.event_id);
+  history.replaceState(null, "", u);
+  panel.hidden = false;
+  requestAnimationFrame(() => { panel.classList.add("open"); scrim.classList.add("open"); });
+
+  const v = verdictFor(d);
+  const why = unscoreableReason(d);
+  const statusLabel = d.is_arbitrage ? "arbitrage"
+    : d.tradeable ? "tradeable" : d.status.replace(/_/g, " ");
+
+  panelBody.innerHTML = `
+    <div class="who" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">
+      ${esc([...new Set([(d.sport || "").toUpperCase(), (d.league || "").toUpperCase()].filter(Boolean))].join(" · "))} · ${kickoff(d.scheduled_start)}</div>
+    <h2 style="margin:6px 0 8px;font-size:19px;font-weight:650;letter-spacing:-.01em">
+      ${esc(d.away_team)} <span style="color:var(--muted);font-weight:400">@</span> ${esc(d.home_team)}</h2>
+    <div class="badges" style="flex-direction:row;justify-content:flex-start">${badgesFor(d)}</div>
+    <div class="verdict ${v.cls}"><span class="vlabel">Verdict</span>${v.text}</div>
+    <div id="panel-detail"><div class="spark-note">Loading price history…</div></div>`;
+
+  let hist = null;
+  try {
+    const res = await fetch(`/events/${d.event_id}/history`);
+    if (res.ok) hist = await res.json();
+  } catch (_) { /* history is optional — the panel is useful without it */ }
+
+  const outs = d.outcomes || [];
+  const compare = outs.map((o, i) => `
+    <div class="sec"><h3>${esc(o.team || "outcome")}</h3>
+      <div class="compare">
+        ${sideCard("Kalshi", o.team, o, hist, "var(--arb)")}
+        ${sideCard("Sportsbook consensus", o.team, o, hist, "var(--signal-dim)")}
+      </div></div>`).join("");
+
+  const arb = d.is_arbitrage ? `
+    <div class="sec"><h3>Arbitrage legs</h3>
+      <table class="books"><thead><tr><th>Outcome</th><th>Venue</th><th>Cost</th></tr></thead><tbody>
+      ${d.arbitrage.legs.map(l => `<tr><td>${esc(l.team)}</td><td>${esc(l.venue)}</td>
+        <td class="best">${(l.implied_price * 100).toFixed(2)}¢</td></tr>`).join("")}
+      <tr><td colspan="2"><strong>Total for $1 payout</strong></td>
+        <td class="best">${(d.arbitrage.total_cost * 100).toFixed(2)}¢</td></tr>
+      </tbody></table></div>` : "";
+
+  el("panel-detail").innerHTML = `
+    ${why ? `<div class="sec"><h3>Why there are no numbers here</h3>
+      <div class="explain"><p>${why}</p></div></div>` : ""}
+    ${compare}
+    ${arb}
+    <div class="sec"><h3>The math</h3>
+      ${explainRow("Divergence", pct(d.max_abs_divergence), false,
+        "How far apart the two sources' <em>beliefs</em> are, comparing vig-stripped mid prices. A measurement of disagreement — it says nothing about whether you could act on it.")}
+      ${explainRow("Net edge after spread", pct(d.best_net_edge), (d.best_net_edge ?? 0) < 0,
+        "What is left once you pay to cross Kalshi's bid-ask spread. Priced off the raw executable book, not the stripped mid, because you transact at the touch. Negative means the disagreement is smaller than the cost of acting on it.")}
+      ${explainRow("Expected value at depth", money(d.best_expected_value), (d.best_expected_value ?? 0) < 0,
+        "The edge multiplied by the size actually resting at that price. A healthy percentage on two contracts is worth pennies — this is the number that says whether the trade is worth making.")}
+    </div>
+    <div class="sec"><h3>Consensus detail${d.n_books ? ` · ${d.n_books} books` : ""}</h3>
+      ${booksTable(outs) || '<div class="spark-note">No per-book prices recorded for this event.</div>'}
+    </div>
+    <div class="sec"><h3>Matching &amp; provenance</h3>
+      <dl class="meta">
+        <dt>Home/away</dt><dd>${d.home_away_source === "odds_api"
+          ? '<span class="pill auth">odds_api — authoritative</span>'
+          : `<span class="pill">${esc(d.home_away_source || "unknown")} — provisional</span>`}</dd>
+        <dt>Sources</dt><dd>${esc((d.sources || []).join(", ") || "—")}</dd>
+        <dt>Kalshi ticker</dt><dd>${esc(d.kalshi_event_ticker || "—")}</dd>
+        <dt>Odds API id</dt><dd>${esc(d.odds_api_event_id || "—")}</dd>
+        <dt>Event id</dt><dd>${esc(d.event_id)}</dd>
+      </dl>
+      <div class="spark-note">Provisional home/away comes from Kalshi ticker ordering and may be
+      corrected later; results and price history are anchored to the team name, so a correction
+      never changes what a stored row means.</div>
+    </div>`;
 }
 
 async function refresh() {
@@ -412,6 +753,7 @@ async function refresh() {
         The endpoint is live but nothing has been ingested yet.</div>`;
       return;
     }
+    MIN_BOOKS = data.min_consensus_books ?? MIN_BOOKS;
     const c = counts(ALL);
     setStatus("live",
       `Live · ${c.all} events · ${c.scored} scored · ${c.arbitrage} arbitrage · `
@@ -419,6 +761,13 @@ async function refresh() {
     renderTiles(ALL);
     renderFilters(ALL);
     renderRows(ALL);
+
+    // Deep link: open the requested event once, on first load.
+    const want = new URLSearchParams(location.search).get("event");
+    if (want && !panel.classList.contains("open") && !openedFromUrl) {
+      const d = ALL.find(x => x.event_id === want);
+      if (d) { openedFromUrl = true; openPanel(d, null); }
+    }
   } catch (err) {
     setStatus("error", "Network error reaching the API");
     contentEl.innerHTML = `<div class="notice"><strong>Couldn't reach the API.</strong><br>

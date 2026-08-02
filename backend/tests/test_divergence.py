@@ -550,3 +550,29 @@ def test_best_trade_falls_back_to_rate_without_depth():
     ev = _event_divergence(rows)
     assert ev.best_trade is not None
     assert ev.best_expected_value is None  # no depth -> no dollar figure claimed
+
+
+# --- detail-view passthrough -------------------------------------------------
+
+
+def test_book_prices_reach_the_outcome_row():
+    """Per-book odds must survive into the API shape, not stop at arbitrage.
+
+    "9 books" is abstract; nine named prices is not. The raw odds are already
+    stored, so failing to carry them forward would be dropping signal we hold.
+    """
+    kalshi = [_k("Chiefs", 0.50, bid=0.49, ask=0.51)]
+    consensus = [_c("Chiefs", 0.52, {"dk": -110.0, "fd": -105.0}, n_books=9)]
+    _, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert rows[0].book_prices == {"dk": -110.0, "fd": -105.0}
+
+
+def test_book_prices_present_even_when_unscored():
+    """A thin consensus still shows its observed prices — that is the evidence
+    for WHY it was not trusted."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.49, ask=0.51)]
+    consensus = [_c("Chiefs", 0.52, {"dk": -110.0}, n_books=1)]
+    status, _, _, rows, _ = score_event(kalshi_quotes=kalshi, consensus_quotes=consensus)
+    assert status is DivergenceStatus.INSUFFICIENT_CONSENSUS
+    assert rows[0].divergence is None  # score withheld...
+    assert rows[0].book_prices == {"dk": -110.0}  # ...but observations shown

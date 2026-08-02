@@ -154,6 +154,12 @@ class OutcomeDivergence:
     spread: float | None = None
     resting_depth: float | None = None
 
+    # Raw per-book American odds behind the consensus median. Carried through so
+    # "9 books" can be shown as nine named prices rather than an abstract count —
+    # the same keep-the-raw-signal principle that preserves raw_price beside the
+    # stripped probability.
+    book_prices: dict[str, float] | None = None
+
     @property
     def abs_divergence(self) -> float | None:
         return None if self.divergence is None else abs(self.divergence)
@@ -202,6 +208,13 @@ class EventDivergence:
     n_books: int | None
     max_abs_divergence: float | None
     outcomes: list[OutcomeDivergence]
+
+    # Provenance. `home_away_source` says whether home/away is still Kalshi's
+    # provisional ticker ordering or has been confirmed against The Odds API —
+    # which is exactly the distinction that makes `team` the stable join anchor.
+    home_away_source: str | None = None
+    kalshi_event_ticker: str | None = None
+    odds_api_event_id: str | None = None
     # Independent of `status`: arbitrage needs no probability estimate, so it is
     # checked even when the consensus is too thin to score a divergence against.
     arbitrage: Arbitrage | None = None
@@ -442,6 +455,10 @@ def score_event(
                     trade_side=side if edge is not None and edge > 0 else None,
                     spread=k.spread if k else None,
                     resting_depth=k.resting_depth if k else None,
+                    # Present even when the event is unscored: the observed book
+                    # prices are real observations, and showing them is how a
+                    # reader sees WHY a thin consensus was not trusted.
+                    book_prices=c.book_prices if c else None,
                 )
             )
         return out
@@ -597,6 +614,9 @@ def compute_divergences(
         Event.home_team,
         Event.away_team,
         Event.scheduled_start,
+        Event.home_away_source,
+        Event.kalshi_event_ticker,
+        Event.odds_api_event_id,
     ).where(Event.status == "scheduled")
     if sport:
         ev_stmt = ev_stmt.where(Event.sport == sport)
@@ -630,6 +650,9 @@ def compute_divergences(
                     quotes.get((e.id, KALSHI_SOURCE), []),
                     quotes.get((e.id, CONSENSUS_SOURCE), []),
                 ),
+                home_away_source=e.home_away_source,
+                kalshi_event_ticker=e.kalshi_event_ticker,
+                odds_api_event_id=e.odds_api_event_id,
             )
         )
 
