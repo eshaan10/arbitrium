@@ -1,208 +1,428 @@
 <!DOCTYPE html>
 <!--
-  MarketEdge — THROWAWAY sanity-check preview (scaffolding).
+  MarketEdge — live pipeline preview (pre-Phase-5 scaffolding).
 
-  Purpose: let us eyeball the pipeline as each phase lands, instead of only
-  poking /docs. Single static file, vanilla JS, no build step, served directly
-  by the FastAPI app at /preview.
+  Single static file, vanilla JS, no build step, served by FastAPI at /preview.
+  Replaced by the Next.js dashboard in Phase 5.
 
-  This is REPLACED by the real Next.js dashboard in Phase 5. Do not invest in it.
+  Two design rules carried over from the project's principles, not decoration:
 
-  Expected GET /divergences item shape (Phase 2 will produce this; renderer is
-  defensive about missing fields):
-    {
-      "matchup": "GB @ CHI",          // or derived from home/away teams
-      "sport": "nfl",
-      "kalshi_probability": 0.61,      // 0..1 implied prob (crowd positioning)
-      "sportsbook_probability": 0.55,  // 0..1 vig-stripped consensus
-      "divergence": 0.06,              // signed or abs gap, 0..1
-      "confidence": 0.72,              // liquidity-weighted 0..1 (drives badge fade)
-      "is_arbitrage": false
-    }
+  1. NEVER HIDE UNCERTAINTY. Low-confidence events are rendered at reduced
+     opacity so they visibly recede, but they are never filtered out. A game we
+     cannot score is a fact about our coverage; hiding it would let a reader
+     assume it doesn't exist.
+  2. AXES ARE NEVER BLENDED. Divergence (belief gap), net edge (capturable after
+     spread), expected value (edge x resting size) and arbitrage (risk-free) are
+     four independent numbers, each shown separately. Colour intensity tracks how
+     rare/actionable a signal is — arbitrage is the most saturated because it is
+     the rarest and the only one that pays regardless of outcome — but every
+     state also carries a text label, so nothing is encoded by colour alone.
+
+  Reads GET /divergences. Field names match the live response.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MarketEdge — pipeline preview</title>
+<title>MarketEdge — live divergence preview</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --border: #21262d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #58a6ff;
-    --arb: #3fb950;
-    --warn: #d29922;
+    /* Surfaces — near-black, low chroma, so crimson accents carry all the signal */
+    --bg:        #0a0b0d;
+    --surface:   #121418;
+    --surface-2: #171a1f;
+    --border:    #23272e;
+    --border-lit:#2f343d;
+
+    /* Ink */
+    --text:      #eceef1;
+    --text-dim:  #a2a9b4;
+    --muted:     #6d747f;
+
+    /* Crimson ramp: saturation tracks rarity + actionability.
+       arb (rarest, risk-free) > tradeable > measured-only. */
+    --arb:       #ff2d55;
+    --arb-glow:  rgba(255, 45, 85, 0.16);
+    --tradeable: #e33d5c;
+    --signal:    #c9455f;
+    --signal-dim:#8e3346;
+
+    --neutral:   #5c636e;
+    --warn:      #c9922b;
+    --ok:        #d64a63;
   }
   * { box-sizing: border-box; }
+  html, body { max-width: 100%; overflow-x: hidden; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 24px;
+    font: 14px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 48px;
   }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  .scaffold-tag {
-    font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-    color: var(--warn); border: 1px solid var(--warn); border-radius: 4px;
-    padding: 1px 6px;
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---------- header ---------- */
+  header { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 20px; }
+  .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 {
+    font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -0.01em;
   }
-  .status { color: var(--muted); font-size: 12px; margin: 8px 0 20px; }
-  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted); margin-right: 6px; vertical-align: middle; }
-  .status.live .dot { background: var(--arb); }
-  .status.waiting .dot { background: var(--warn); }
-  .status.error .dot { background: #f85149; }
-
-  .notice {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-    padding: 20px; color: var(--muted); max-width: 640px;
+  h1 .mark { color: var(--arb); }
+  .tag {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600;
+    color: var(--muted); border: 1px solid var(--border-lit); border-radius: 4px; padding: 2px 7px;
   }
-  .notice strong { color: var(--text); }
+  .lede { color: var(--text-dim); margin: 8px 0 0; max-width: 74ch; font-size: 13.5px; }
 
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase;
-    letter-spacing: .03em; }
-  td.num { font-variant-numeric: tabular-nums; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
+  /* ---------- status ---------- */
+  .status { display: flex; align-items: center; gap: 8px; color: var(--muted);
+    font-size: 12px; margin-top: 14px; font-variant-numeric: tabular-nums; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status.live .dot { background: var(--arb); box-shadow: 0 0 0 3px var(--arb-glow); }
+  .status.error .dot { background: var(--warn); }
 
+  /* ---------- summary tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 10px; margin: 20px 0 22px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; }
+  .tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tile .v { font-size: 22px; font-weight: 650; margin-top: 3px; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em; }
+  .tile.accent { border-color: rgba(255,45,85,.32); background:
+    linear-gradient(180deg, rgba(255,45,85,.07), transparent 70%), var(--surface); }
+  .tile.accent .v { color: var(--arb); }
+
+  /* ---------- filters ---------- */
+  .filters { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-end;
+    margin-bottom: 16px; }
+  .fgroup { display: flex; flex-direction: column; gap: 6px; }
+  .flabel { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+    font-family: inherit; transition: background .12s, border-color .12s, color .12s;
+  }
+  .chip:hover { border-color: var(--border-lit); color: var(--text); }
+  .chip[aria-pressed="true"] {
+    background: rgba(255,45,85,.12); border-color: rgba(255,45,85,.5); color: #ffd3dc;
+  }
+  .chip .n { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 5px; font-size: 11.5px; }
+  .chip[aria-pressed="true"] .n { color: rgba(255,211,220,.7); }
+
+  /* ---------- event rows ---------- */
+  .rows { display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; display: grid; gap: 14px;
+    grid-template-columns: minmax(230px, 1.6fr) minmax(430px, 2.4fr) auto;
+    align-items: center;
+    border-left: 3px solid transparent;
+    transition: border-color .12s, background .12s;
+  }
+  .row:hover { background: var(--surface-2); border-color: var(--border-lit); }
+  /* Arbitrage: the boldest treatment in the palette — rarest and the only signal
+     that pays regardless of outcome. */
+  .row.arb {
+    border-left-color: var(--arb);
+    background: linear-gradient(90deg, var(--arb-glow), transparent 42%), var(--surface);
+  }
+  .row.arb:hover { background: linear-gradient(90deg, var(--arb-glow), transparent 42%), var(--surface-2); }
+  .row.tradeable { border-left-color: var(--tradeable); }
+
+  .matchup { font-weight: 600; font-size: 14.5px; letter-spacing: -0.005em; }
+  .matchup .at { color: var(--muted); font-weight: 400; margin: 0 5px; }
+  .sub { color: var(--muted); font-size: 11.5px; margin-top: 3px;
+    font-variant-numeric: tabular-nums; }
+
+  .metrics { display: grid; grid-template-columns: repeat(5, minmax(72px, 1fr)); gap: 10px; }
+  .m .k { font-size: 10px; text-transform: uppercase; letter-spacing: .055em; color: var(--muted);
+    white-space: nowrap; }
+  .m .v { font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 2px; font-weight: 550; }
+  .m .v.strong { color: var(--signal); }
+  /* A negative net edge is the ABSENCE of an opportunity. With a single-hue
+     accent palette there is no complementary colour to carry that, so it drops
+     to muted ink rather than wearing the signal colour — otherwise -0.41% reads
+     as though it were as meaningful as +1.17%. */
+  .m .v.neg { color: var(--muted); font-weight: 450; }
+  .m .v.none { color: var(--muted); font-weight: 400; }
+
+  .badges { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
   .badge {
-    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
-    border: 1px solid var(--border); background: var(--panel);
+    font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em;
+    padding: 3px 9px; border-radius: 5px; border: 1px solid; white-space: nowrap;
   }
-  /* Confidence badge: opacity scales with the liquidity-weighted score.
-     Low confidence = faded (but NEVER hidden), per design principle #1. */
-  .conf-high   { color: var(--arb);  border-color: var(--arb); }
-  .conf-med    { color: var(--accent); border-color: var(--accent); }
-  .conf-low    { color: var(--muted); border-color: var(--muted); }
+  .b-arb { color: #fff; background: var(--arb); border-color: var(--arb);
+    box-shadow: 0 0 14px var(--arb-glow); }
+  .b-trade { color: #ffc9d4; background: rgba(227,61,92,.15); border-color: rgba(227,61,92,.55); }
+  .b-quiet { color: var(--text-dim); background: transparent; border-color: var(--border-lit); }
+  .b-thin  { color: var(--warn); background: transparent; border-color: rgba(201,146,43,.45); }
 
-  .arb-flag {
-    color: var(--arb); border: 1px solid var(--arb); border-radius: 4px;
-    font-size: 11px; padding: 1px 5px; margin-left: 6px;
+  .reason { color: var(--muted); font-size: 11px; margin-top: 8px; grid-column: 1 / -1;
+    border-top: 1px solid var(--border); padding-top: 8px; }
+
+  /* ---------- notices ---------- */
+  .notice { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 22px; color: var(--text-dim); }
+  .notice strong { color: var(--text); }
+  code { background: var(--surface-2); padding: 1.5px 5px; border-radius: 4px;
+    font-size: 12.5px; color: var(--text-dim); }
+  footer { margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+
+  @media (max-width: 900px) {
+    .row { grid-template-columns: 1fr; align-items: start; }
+    .badges { flex-direction: row; align-items: center; }
+    .metrics { grid-template-columns: repeat(3, 1fr); }
   }
-  .diverge-pos { color: var(--accent); }
-  footer { margin-top: 24px; color: var(--muted); font-size: 11px; }
-  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
 </style>
 </head>
 <body>
+<div class="wrap">
   <header>
-    <h1>MarketEdge — pipeline preview</h1>
-    <span class="scaffold-tag">scaffolding · replaced in Phase 5</span>
+    <div class="title-row">
+      <h1>Market<span class="mark">Edge</span></h1>
+      <span class="tag">scaffolding · Phase 5 replaces this</span>
+    </div>
+    <p class="lede">
+      An independent auditor for two sports-pricing systems that never check each other's work —
+      comparing Kalshi's crowd-positioned prices against vig-stripped sportsbook consensus, and
+      reporting what is merely a disagreement versus what is actually capturable.
+    </p>
+    <div id="status" class="status"><span class="dot"></span><span id="status-text">Loading…</span></div>
   </header>
-  <div id="status" class="status"><span class="dot"></span><span id="status-text">Loading…</span></div>
 
+  <div id="tiles" class="tiles" hidden></div>
+  <div id="filters" class="filters" hidden></div>
   <div id="content"></div>
 
   <footer>
-    Auto-refreshes every 30s · source: <code>GET /divergences</code> ·
-    Kalshi probability = crowd positioning; sportsbook = vig-stripped consensus.
+    <strong style="color:var(--text-dim)">Divergence</strong> compares vig-stripped mid prices — how far
+    apart the two sources' beliefs are.
+    <strong style="color:var(--text-dim)">Net edge</strong> compares consensus against Kalshi's raw
+    executable bid/ask — what survives crossing the book.
+    <strong style="color:var(--text-dim)">EV @ depth</strong> scales that edge by the size actually
+    resting there. <strong style="color:var(--arb)">Arbitrage</strong> is risk-free and needs no
+    belief at all; its profit is gross, before fees and execution risk.<br>
+    Faded rows are low-confidence, never hidden. Auto-refreshes every 45s from <code>GET /divergences</code>.
   </footer>
+</div>
 
 <script>
-const REFRESH_MS = 30000;
-const contentEl = document.getElementById("content");
-const statusEl = document.getElementById("status");
-const statusText = document.getElementById("status-text");
+const REFRESH_MS = 45000;
+const el = (id) => document.getElementById(id);
+const contentEl = el("content"), statusEl = el("status"), statusText = el("status-text");
+const tilesEl = el("tiles"), filtersEl = el("filters");
 
-function setStatus(kind, text) {
+let ALL = [];
+let filterSport = "all";
+let filterKind = "all";
+
+const setStatus = (kind, text) => {
   statusEl.className = "status " + kind;
   statusText.textContent = text;
+};
+
+const pct = (x, digits = 2) =>
+  (x === null || x === undefined || Number.isNaN(x)) ? null : (x * 100).toFixed(digits) + "%";
+const money = (x) =>
+  (x === null || x === undefined || Number.isNaN(x)) ? null : "$" + x.toFixed(2);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* Confidence -> opacity. Driven by how much evidence stands behind the number:
+   a single-source event knows least, a 9-book consensus knows most. Floors at
+   0.42 so a low-confidence row RECEDES but stays fully legible — never hidden. */
+function confidenceOf(d) {
+  if (d.status === "single_source_no_divergence") return 0.12;
+  if (d.status === "insufficient_consensus") return 0.34;
+  if (d.status === "incomparable_outcomes") return 0.22;
+  const books = d.n_books ?? 0;
+  return 0.55 + 0.45 * Math.min(books / 9, 1);
 }
 
-function pct(x) {
-  return (x === null || x === undefined || isNaN(x)) ? "—" : (x * 100).toFixed(1) + "%";
+/* Arbitrage is NEVER dimmed, however thin the consensus behind it.
+   The confidence fade expresses how much to trust a PROBABILITY ESTIMATE, and
+   arbitrage does not rest on one: if every outcome can be bought for under $1
+   the position returns $1 regardless of who is right. Fading it for a low book
+   count would apply the wrong axis's uncertainty to it — the same conflation the
+   engine deliberately avoids by exempting arbitrage from min_consensus_books.
+   (Observed live: a genuine 1.4% book-vs-book arbitrage on a single-source
+   event, which this rule would otherwise have rendered at half opacity.) */
+const opacityOf = (d) =>
+  d.is_arbitrage ? "1" : (0.42 + 0.58 * confidenceOf(d)).toFixed(3);
+
+function kickoff(iso) {
+  if (!iso) return "—";
+  const dt = new Date(iso);
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    + " · " + dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-// Map liquidity-weighted confidence (0..1) -> a tier + an opacity so low-confidence
-// rows read as faded but remain fully visible. Never filter them out.
-function confidenceBadge(conf) {
-  if (conf === null || conf === undefined || isNaN(conf)) {
-    return '<span class="badge conf-low" style="opacity:.5">unknown</span>';
+function badgesFor(d) {
+  const out = [];
+  if (d.is_arbitrage) {
+    const gp = pct(d.arbitrage?.gross_profit, 3);
+    const venues = [...new Set((d.arbitrage?.legs || []).map(l => l.venue))].join(" + ");
+    out.push(`<span class="badge b-arb" title="Risk-free: every outcome covered for under $1${venues ? " via " + venues : ""}. Gross — before fees and execution risk.">arbitrage${gp ? " · " + gp : ""}</span>`);
   }
-  const opacity = (0.4 + 0.6 * Math.max(0, Math.min(1, conf))).toFixed(2);
-  let cls = "conf-low", label = "low";
-  if (conf >= 0.66) { cls = "conf-high"; label = "high"; }
-  else if (conf >= 0.33) { cls = "conf-med"; label = "med"; }
-  return `<span class="badge ${cls}" style="opacity:${opacity}">${label} · ${(conf*100).toFixed(0)}%</span>`;
+  if (d.tradeable) out.push('<span class="badge b-trade" title="Some edge survives crossing the Kalshi spread.">tradeable</span>');
+  if (d.status === "insufficient_consensus")
+    out.push('<span class="badge b-thin" title="Too few bookmakers to trust the median as a probability.">thin consensus</span>');
+  if (d.status === "single_source_no_divergence")
+    out.push('<span class="badge b-quiet" title="Only one source priced this game — nothing to compare against.">single source</span>');
+  if (d.status === "incomparable_outcomes")
+    out.push('<span class="badge b-thin">incomparable</span>');
+  if (d.status === "scored" && !d.tradeable)
+    out.push('<span class="badge b-quiet" title="A real, correctly measured disagreement that is smaller than the spread needed to capture it.">measured only</span>');
+  return out.join("");
 }
 
-function matchupOf(d) {
-  if (d.matchup) return d.matchup;
-  if (d.away_team && d.home_team) return `${d.away_team} @ ${d.home_team}`;
-  return d.event_id || "—";
+function metric(k, v, strong, raw) {
+  const has = v !== null && v !== undefined;
+  const negative = typeof raw === "number" && raw < 0;
+  const cls = !has ? "none" : (negative ? "neg" : (strong ? "strong" : ""));
+  return `<div class="m"><div class="k">${k}</div>
+    <div class="v ${cls}">${has ? esc(v) : "—"}</div></div>`;
 }
 
-function render(divergences) {
-  if (!Array.isArray(divergences) || divergences.length === 0) {
-    contentEl.innerHTML = '<div class="notice">Endpoint is live but returned '
-      + '<strong>no divergences</strong> right now. This is normal if no snapshots '
-      + 'have been ingested yet, or nothing currently diverges.</div>';
+function rowFor(d) {
+  const cls = d.is_arbitrage ? "row arb" : (d.tradeable ? "row tradeable" : "row");
+  const depth = d.best_trade?.resting_depth;
+  const trade = d.best_trade
+    ? `${d.best_trade.side === "sell_kalshi" ? "sell" : "buy"} ${esc(d.best_trade.team)}`
+    : null;
+
+  return `<div class="${cls}" style="opacity:${opacityOf(d)}">
+    <div>
+      <div class="matchup">${esc(d.away_team)}<span class="at">@</span>${esc(d.home_team)}</div>
+      <div class="sub">${esc((d.sport || "").toUpperCase())} · ${kickoff(d.scheduled_start)}${trade ? " · " + trade : ""}</div>
+    </div>
+    <div class="metrics">
+      ${metric("Divergence", pct(d.max_abs_divergence), true, d.max_abs_divergence)}
+      ${metric("Net edge", pct(d.best_net_edge), true, d.best_net_edge)}
+      ${metric("EV @ depth", money(d.best_expected_value), true, d.best_expected_value)}
+      ${metric("Books", d.n_books ?? null)}
+      ${metric("Depth", depth != null ? Math.round(depth).toLocaleString() : null)}
+    </div>
+    <div class="badges">${badgesFor(d)}</div>
+  </div>`;
+}
+
+function counts(list) {
+  return {
+    all: list.length,
+    arbitrage: list.filter(d => d.is_arbitrage).length,
+    tradeable: list.filter(d => d.tradeable && !d.is_arbitrage).length,
+    scored: list.filter(d => d.status === "scored").length,
+    unscoreable: list.filter(d => d.status !== "scored").length,
+  };
+}
+
+function renderTiles(list) {
+  const c = counts(list);
+  tilesEl.hidden = false;
+  tilesEl.innerHTML = `
+    <div class="tile"><div class="k">Events</div><div class="v">${c.all}</div></div>
+    <div class="tile"><div class="k">Scored</div><div class="v">${c.scored}</div></div>
+    <div class="tile"><div class="k">Tradeable</div><div class="v">${c.tradeable + c.arbitrage}</div></div>
+    <div class="tile accent"><div class="k">Arbitrage</div><div class="v">${c.arbitrage}</div></div>
+    <div class="tile"><div class="k">Unscoreable</div><div class="v">${c.unscoreable}</div></div>`;
+}
+
+function renderFilters(list) {
+  const sports = [...new Set(list.map(d => d.sport).filter(Boolean))].sort();
+  const c = counts(list);
+  const chip = (val, label, n, group) =>
+    `<button class="chip" role="button" data-group="${group}" data-val="${val}"
+       aria-pressed="${(group === "sport" ? filterSport : filterKind) === val}">
+       ${esc(label)}<span class="n">${n}</span></button>`;
+
+  filtersEl.hidden = false;
+  filtersEl.innerHTML = `
+    <div class="fgroup"><div class="flabel">Sport</div><div class="chips">
+      ${chip("all", "All", list.length, "sport")}
+      ${sports.map(s => chip(s, s.toUpperCase(), list.filter(d => d.sport === s).length, "sport")).join("")}
+    </div></div>
+    <div class="fgroup"><div class="flabel">Signal</div><div class="chips">
+      ${chip("all", "All", c.all, "kind")}
+      ${chip("arbitrage", "Arbitrage", c.arbitrage, "kind")}
+      ${chip("tradeable", "Tradeable", c.tradeable + c.arbitrage, "kind")}
+      ${chip("scored", "Scored", c.scored, "kind")}
+      ${chip("unscoreable", "Unscoreable", c.unscoreable, "kind")}
+    </div></div>`;
+
+  filtersEl.querySelectorAll(".chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const { group, val } = btn.dataset;
+      if (group === "sport") filterSport = val; else filterKind = val;
+      renderFilters(ALL);
+      renderRows(ALL);
+    });
+  });
+}
+
+function applyFilters(list) {
+  return list.filter(d => {
+    if (filterSport !== "all" && d.sport !== filterSport) return false;
+    if (filterKind === "arbitrage") return d.is_arbitrage;
+    if (filterKind === "tradeable") return d.tradeable;
+    if (filterKind === "scored") return d.status === "scored";
+    if (filterKind === "unscoreable") return d.status !== "scored";
+    return true;
+  });
+}
+
+function renderRows(list) {
+  const shown = applyFilters(list);
+  if (!shown.length) {
+    contentEl.innerHTML = `<div class="notice"><strong>Nothing matches this filter.</strong><br>
+      ${list.length} event(s) are loaded — clear the filter to see them.</div>`;
     return;
   }
-  // Sort by divergence magnitude, largest first (matches dashboard intent).
-  const rows = divergences.slice().sort(
-    (a, b) => Math.abs(b.divergence ?? 0) - Math.abs(a.divergence ?? 0)
+  // Arbitrage first, then tradeable by expected dollars, then everything else by
+  // divergence. Unscoreable events sort last but are always present.
+  const sorted = shown.slice().sort((a, b) =>
+    (b.is_arbitrage - a.is_arbitrage) ||
+    (b.tradeable - a.tradeable) ||
+    ((b.best_expected_value ?? -1e9) - (a.best_expected_value ?? -1e9)) ||
+    ((b.max_abs_divergence ?? 0) - (a.max_abs_divergence ?? 0))
   );
-  let html = `<table><thead><tr>
-      <th>Matchup</th><th>Sport</th>
-      <th>Kalshi (crowd)</th><th>Sportsbook</th>
-      <th>Divergence</th><th>Confidence</th>
-    </tr></thead><tbody>`;
-  for (const d of rows) {
-    const arb = d.is_arbitrage ? '<span class="arb-flag">ARB</span>' : "";
-    html += `<tr>
-      <td>${matchupOf(d)}${arb}</td>
-      <td>${d.sport ?? "—"}</td>
-      <td class="num">${pct(d.kalshi_probability)}</td>
-      <td class="num">${pct(d.sportsbook_probability)}</td>
-      <td class="num diverge-pos">${pct(Math.abs(d.divergence ?? NaN))}</td>
-      <td>${confidenceBadge(d.confidence)}</td>
-    </tr>`;
-  }
-  html += "</tbody></table>";
-  contentEl.innerHTML = html;
-}
-
-function showWaiting() {
-  // Phase 1: /divergences doesn't exist yet -> 404. Show a clear message,
-  // never a silent failure.
-  contentEl.innerHTML = '<div class="notice">'
-    + '<strong>Waiting on the Phase 2 endpoint.</strong><br><br>'
-    + 'The <code>GET /divergences</code> route isn\'t built yet (returned 404). '
-    + 'This preview will start showing data automatically once Phase 2 ships the '
-    + 'divergence-detection endpoint. Nothing is broken — the pipeline just '
-    + 'hasn\'t reached this stage.</div>';
+  contentEl.innerHTML = `<div class="rows">${sorted.map(rowFor).join("")}</div>`;
 }
 
 async function refresh() {
   try {
-    const res = await fetch("/divergences", { headers: { "Accept": "application/json" } });
-    if (res.status === 404) {
-      setStatus("waiting", "Phase 2 endpoint not built yet — waiting");
-      showWaiting();
-      return;
-    }
+    const res = await fetch("/divergences?limit=500", { headers: { Accept: "application/json" } });
     if (!res.ok) {
       setStatus("error", `/divergences returned HTTP ${res.status}`);
-      contentEl.innerHTML = `<div class="notice"><strong>Unexpected response.</strong><br>`
-        + `<code>GET /divergences</code> returned HTTP ${res.status}.</div>`;
+      contentEl.innerHTML = `<div class="notice"><strong>Unexpected response.</strong><br>
+        <code>GET /divergences</code> returned HTTP ${res.status}.</div>`;
       return;
     }
     const data = await res.json();
-    // Accept either a bare array or {divergences:[...]}.
-    const list = Array.isArray(data) ? data : (data.divergences || []);
-    setStatus("live", `Live · ${list.length} divergence(s) · updated ${new Date().toLocaleTimeString()}`);
-    render(list);
+    ALL = Array.isArray(data) ? data : (data.divergences || []);
+    if (!ALL.length) {
+      tilesEl.hidden = filtersEl.hidden = true;
+      setStatus("live", "Live · no events yet");
+      contentEl.innerHTML = `<div class="notice"><strong>No events returned.</strong><br>
+        The endpoint is live but nothing has been ingested yet.</div>`;
+      return;
+    }
+    const c = counts(ALL);
+    setStatus("live",
+      `Live · ${c.all} events · ${c.scored} scored · ${c.arbitrage} arbitrage · `
+      + `min ${data.min_consensus_books ?? "?"} books to score · updated ${new Date().toLocaleTimeString()}`);
+    renderTiles(ALL);
+    renderFilters(ALL);
+    renderRows(ALL);
   } catch (err) {
     setStatus("error", "Network error reaching the API");
-    contentEl.innerHTML = `<div class="notice"><strong>Couldn't reach the API.</strong><br>`
-      + `Is the FastAPI service running? (${err})</div>`;
+    contentEl.innerHTML = `<div class="notice"><strong>Couldn't reach the API.</strong><br>
+      Is the FastAPI service running? (${esc(err)})</div>`;
   }
 }
 
