@@ -58,7 +58,48 @@ class Settings(BaseSettings):
     # more slowly than a live order book, and each call costs API quota, so this
     # is deliberately less frequent. Poll ORDER does not matter — both ingestion
     # paths run the shared matcher, so whichever arrives first creates the event.
+    #
+    # Only a FLOOR now — the effective interval is chosen adaptively per pass by
+    # marketedge.ingestion.polling. Kept as the scheduler's tick for the source.
     odds_poll_interval_seconds: int = 900
+
+    # --- Adaptive Odds API pacing (see ingestion/polling.py) ----------------
+    # The plan allows 500 credits/month (~16/day) and bills only requests that
+    # return events. A flat 900s interval costs ~96/day and burns the month in
+    # five days. These tiers spend the budget near kickoff, where lines actually
+    # move and where closing-line value is measured, instead of spreading it
+    # evenly over games that are weeks away.
+    odds_poll_near_horizon_seconds: int = 86_400  # "near" = within 24h of kickoff
+    odds_poll_mid_horizon_seconds: int = 604_800  # "mid"  = within 7d
+    odds_poll_near_seconds: int = 3_600  # hourly inside 24h
+    odds_poll_mid_seconds: int = 21_600  # 4x/day inside 7d
+    odds_poll_far_seconds: int = 86_400  # daily beyond that, or no games at all
+
+    # Stop making PAID calls once the remaining monthly quota falls below this.
+    # Without it, exhaustion looks exactly like a quiet market: calls fail, no
+    # rows are written, and nothing says why. Reserve leaves room for resolution,
+    # which is perishable (a missed 3-day window loses an outcome permanently).
+    odds_api_quota_reserve: int = 50
+
+    # --- Outcome resolution (Phase 3) --------------------------------------
+    # The scores endpoint caps daysFrom at 3 (4 => HTTP 422). There is NO deeper
+    # history: an outcome not collected within ~3 days of the final whistle is
+    # permanently unavailable from this source. Every constant here exists to buy
+    # redundancy inside that non-negotiable window.
+    resolution_poll_interval_seconds: int = 21_600  # 6h => ~14 chances per game
+    resolution_days_from: int = 3  # provider HARD MAX; validated client-side
+    resolution_grace_minutes: int = 180  # don't ask before a game could be final
+    resolution_unresolvable_after_hours: int = 84  # 3.5d; past this the data is gone
+
+    # Resolution legitimately writes nothing for weeks in the off-season, so the
+    # generic zero-write alarm is the WRONG signal here — it would scream all
+    # summer and say nothing during the one week it matters. The real alarm is
+    # `hours_until_next_data_loss` in /health. These are set effectively off.
+    resolution_zero_write_warn_seconds: int = 2_592_000  # 30d
+    resolution_zero_write_error_seconds: int = 7_776_000  # 90d
+
+    # Documentation-as-config: the ceiling every pacing decision above answers to.
+    odds_api_monthly_credit_budget: int = 500
 
     # --- Ingest health (see scheduler/health.py) ---------------------------
     # A pass that raises is unambiguously broken, so the failure threshold is

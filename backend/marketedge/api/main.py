@@ -19,6 +19,7 @@ from marketedge.config import settings
 from marketedge.db.engine import SessionLocal, engine
 from marketedge.db.models import OddsSnapshot
 from marketedge.divergence.engine import DivergenceStatus, compute_divergences
+from marketedge.ingestion.resolution import PendingSummary, pending_resolution
 from marketedge.logging_config import configure_logging
 
 configure_logging()
@@ -90,13 +91,42 @@ def _ingestion_freshness(db: Session) -> dict[str, dict]:
     return staleness_report({source: ts for source, ts in rows})
 
 
+def resolution_report(summary: PendingSummary, *, now: datetime | None = None) -> dict:
+    """Outcome-collection health. Pure, so the policy is testable in isolation.
+
+    ``hours_until_next_data_loss`` is the number that matters. Resolution is the
+    one irreversible job in the system — the scores endpoint only reaches back 3
+    days — so this converts "something is wrong" into "you have N hours to fix it
+    before an outcome is gone permanently".
+    """
+    countdown = summary.hours_until_next_data_loss
+    poll_hours = settings.resolution_poll_interval_seconds / 3600
+
+    if summary.expired:
+        verdict = "data_lost"  # already unrecoverable
+    elif countdown is not None and countdown <= poll_hours:
+        verdict = "at_risk"  # fewer than one poll left to save it
+    else:
+        verdict = "healthy"
+
+    return {
+        "pending": summary.resolvable,
+        "sports_pending": summary.sports,
+        "hours_until_next_data_loss": None if countdown is None else round(countdown, 1),
+        "unresolvable_total": summary.expired,
+        "window_hours": settings.resolution_unresolvable_after_hours,
+        "verdict": verdict,
+    }
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)) -> dict:
-    """Liveness, database connectivity, and per-source ingestion freshness.
+    """Liveness, database connectivity, ingestion freshness, and resolution risk.
 
     The freshness block exists because a silently broken ingest previously looked
-    identical to a healthy one for a week. A single request now answers "is data
-    still arriving?" without reading logs.
+    identical to a healthy one for a week. The resolution block exists because a
+    missed outcome cannot be recovered at all — freshness tells you data stopped
+    arriving, this tells you how long until that becomes permanent.
     """
     db_ok = False
     try:
@@ -107,16 +137,27 @@ def health(db: Session = Depends(get_db)) -> dict:
         db_ok = False
 
     ingestion: dict[str, dict] = {}
+    resolution: dict = {}
     if db_ok:
         try:
             ingestion = _ingestion_freshness(db)
         except Exception:  # noqa: BLE001 - health must never 500
             logger.exception("Failed to compute ingestion freshness")
+        try:
+            resolution = resolution_report(pending_resolution(db))
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to compute resolution health")
 
+    healthy = (
+        db_ok
+        and not any(v["stale"] for v in ingestion.values())
+        and resolution.get("verdict", "healthy") == "healthy"
+    )
     return {
-        "status": "ok" if db_ok and not any(v["stale"] for v in ingestion.values()) else "degraded",
+        "status": "ok" if healthy else "degraded",
         "database": "ok" if db_ok else "unavailable",
         "ingestion": ingestion,
+        "resolution": resolution,
     }
 
 

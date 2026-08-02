@@ -24,6 +24,12 @@ _SECRET_QUERY_PARAMS = re.compile(
     re.IGNORECASE,
 )
 
+# Grep-able marker attached to every escalated operational message, so alerting
+# never has to parse prose. Defined here rather than in scheduler.health because
+# marketedge.* must not import from scheduler.* — the dependency runs one way.
+# scheduler.health re-exports it, so existing imports keep working.
+UNHEALTHY_MARKER = "INGEST_UNHEALTHY"
+
 
 def redact(text: str) -> str:
     """Replace credential query-parameter values with ``***REDACTED***``."""

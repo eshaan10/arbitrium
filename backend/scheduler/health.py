@@ -27,10 +27,13 @@ from datetime import datetime, timedelta, timezone
 
 from marketedge.config import settings
 from marketedge.ingestion.result import IngestResult
+from marketedge.logging_config import UNHEALTHY_MARKER
 
 logger = logging.getLogger(__name__)
 
-UNHEALTHY_MARKER = "INGEST_UNHEALTHY"
+# Re-exported from marketedge.logging_config so both layers share one marker
+# without scheduler.* becoming a dependency of marketedge.*.
+__all__ = ["IngestHealth", "UNHEALTHY_MARKER"]
 
 
 class IngestHealth:

@@ -39,7 +39,7 @@ score. See [what shipped](#phase-2-what-shipped) below, including the gaps left 
 |-------|-------|-------|
 | 1 | Foundation: schema, Kalshi ingestion, normalization tests | **done** |
 | 2 | Sportsbook ingestion, divergence scoring, `/divergences` | **done** |
-| 3 | Outcome resolution, calibration + grading, `/performance` | next |
+| 3 | Outcome resolution, calibration + grading, `/performance` | **active** — resolution + job history shipped; calibration model next |
 | 4 | Combo optimizer (3 risk tiers), `/combos` | planned |
 | 5 | Frontend (dashboard, game detail, combo builder, performance) | planned |
 | 6 | CI/CD, deploy, README polish | planned |
@@ -76,6 +76,21 @@ The Odds API ──────> ingestion/odds_api.py ───┘             
   wildly different numbers. Consecutive failures escalate with an `INGEST_UNHEALTHY` log marker;
   `/health` independently reports per-source write recency straight from the append-only table, so a
   dead poller still surfaces after a restart clears in-process counters.
+- **Outcome resolution:** results come from The Odds API scores endpoint, joined on the odds event id
+  we already store (and falling back to the shared matcher for Kalshi-only events). A result is
+  stored as `winner_team` — a canonical team name — never as `'home'`/`'away'`; `winner_side` is a
+  Postgres *generated* column, so a later home/away correction recomputes it in the same statement
+  and the two can never drift. Resolution is the one **perishable** job here: the endpoint reaches
+  back only 3 days, so an outcome missed inside that window is gone permanently, and `/health`
+  reports `hours_until_next_data_loss` rather than waiting to report the loss.
+- **Adaptive polling:** the Odds API bills per request returning events against a 500/month budget.
+  A flat 15-minute interval cost ~96 credits/day and exhausted the month in five days. Polling is now
+  paced by time-to-kickoff (hourly inside 24h, 6-hourly inside a week, daily beyond), because CLV is
+  measured against the *closing* line — so credits go where prices actually move. A quota guard stops
+  paid calls above a reserve so exhaustion cannot masquerade as a quiet market.
+- **Job history:** `ingest_runs` records every pass in its own committed transaction, so a *failed*
+  pass still leaves evidence. Data freshness alone could never separate "poller dead" from "market
+  genuinely quiet"; a run row can.
 - **API:** FastAPI: `/health`, `/divergences`.
 
 ## Phase 2: what shipped

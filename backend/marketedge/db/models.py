@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Computed,
     ForeignKey,
     Integer,
     Numeric,
@@ -43,7 +44,24 @@ class Event(Base):
 
     home_score: Mapped[int | None] = mapped_column(Integer)
     away_score: Mapped[int | None] = mapped_column(Integer)
-    winner: Mapped[str | None] = mapped_column(String)  # 'home' | 'away' | 'draw' | NULL
+    # Canonical winning team — the STABLE result anchor (NULL for a draw, and
+    # also NULL while unresolved; `status` discriminates). Never home/away: those
+    # are provisional for Kalshi events and get corrected later. See migration 0007.
+    winner_team: Mapped[str | None] = mapped_column(String)
+    # Derived by Postgres from winner_team + home/away, so it CANNOT drift when
+    # home/away is corrected. Read-only: Computed marks it non-writable.
+    winner_side: Mapped[str | None] = mapped_column(
+        String,
+        Computed(
+            "CASE WHEN status <> 'final' THEN NULL "
+            "WHEN winner_team IS NULL THEN 'draw' "
+            "WHEN winner_team = home_team THEN 'home' "
+            "WHEN winner_team = away_team THEN 'away' END",
+            persisted=True,
+        ),
+    )
+    resolution_source: Mapped[str | None] = mapped_column(String)  # 'odds_api_scores'
+    unresolvable_reason: Mapped[str | None] = mapped_column(String)
     resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     kalshi_event_ticker: Mapped[str | None] = mapped_column(String, unique=True)
@@ -117,3 +135,33 @@ class CalibrationHistory(Base):
     outcome_correct: Mapped[bool | None] = mapped_column()  # NULL until resolved
     flagged_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     graded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class IngestRun(Base):
+    """One ingestion pass. Records the JOB, not its output.
+
+    Freshness of DATA cannot distinguish a dead poller from a genuinely quiet
+    market; this can. See marketedge.ingestion.runs for the verdict matrix and
+    for why rows are written in their own committed transaction.
+    """
+
+    __tablename__ = "ingest_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String, nullable=False)  # job name
+    status: Mapped[str] = mapped_column(String, nullable=False)  # running|success|failure|abandoned
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+    events_seen: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    events_skipped: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    rows_attempted: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    rows_written: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    error_type: Mapped[str | None] = mapped_column(String)
+    # ALWAYS written through redact() — a persisted credential is worse than a
+    # logged one, because rows do not rotate.
+    error_message: Mapped[str | None] = mapped_column(String)
+    detail: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))

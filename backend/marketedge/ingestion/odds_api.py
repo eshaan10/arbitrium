@@ -34,7 +34,7 @@ from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import NormalizedSnapshot, normalize_odds_api_consensus
 from marketedge.ingestion.result import IngestResult
 from marketedge.ingestion.snapshots import insert_snapshots, snapshot_count
-from marketedge.logging_config import redact
+from marketedge.logging_config import UNHEALTHY_MARKER, redact
 from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_by_name
 
@@ -50,19 +50,43 @@ class OddsSport:
 
 
 # Odds API sport_key -> our sport/league. Extend as leagues go live.
+# Empty responses are free, so an out-of-season key costs nothing to leave here.
 ODDS_SPORTS: dict[str, OddsSport] = {
     "americanfootball_nfl": OddsSport("nfl", "NFL"),
+    # Preseason is a SEPARATE key: the regular-season key does not cover August
+    # games, which is why Kalshi's preseason events sat single-source with no
+    # consensus to compare against. Also the earliest source of real completed
+    # games for outcome resolution.
+    "americanfootball_nfl_preseason": OddsSport("nfl", "NFL"),
     "basketball_nba": OddsSport("nba", "NBA"),
 }
 
 
+# The scores endpoint's hard ceiling. daysFrom=4 returns HTTP 422 "Invalid
+# daysFrom" — verified live. There is NO deeper history on this endpoint, so an
+# outcome not collected inside this window is permanently unavailable from here.
+MAX_SCORES_DAYS_FROM = 3
+
+
+class QuotaExhausted(RuntimeError):
+    """Raised instead of spending the last of the monthly API budget."""
+
+
 class OddsApiClient:
-    """Thin httpx wrapper over The Odds API v4 (requires an API key)."""
+    """Thin httpx wrapper over The Odds API v4 (requires an API key).
+
+    Tracks the remaining monthly quota from response headers and refuses to spend
+    below a reserve. Without that, exhaustion is indistinguishable from a quiet
+    market: calls start failing, nothing is written, and no signal says why.
+    """
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None, timeout: float = 15.0) -> None:
         self.api_key = api_key or settings.odds_api_key
         self.base_url = (base_url or settings.odds_api_base).rstrip("/")
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        # Only known after the first response; None means "not yet observed".
+        self.quota_remaining: int | None = None
+        self.quota_used: int | None = None
 
     def close(self) -> None:
         self._client.close()
@@ -73,32 +97,77 @@ class OddsApiClient:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def get_odds(self, sport_key: str, *, regions: str = "us", markets: str = "h2h") -> list[dict]:
-        """Return events with bookmaker odds. Costs one quota unit per call.
+    def _record_quota(self, resp: httpx.Response) -> None:
+        """Read the quota counters the API returns on every response."""
+        for header, attr in (
+            ("x-requests-remaining", "quota_remaining"),
+            ("x-requests-used", "quota_used"),
+        ):
+            raw = resp.headers.get(header)
+            if raw is not None:
+                try:
+                    setattr(self, attr, int(float(raw)))
+                except ValueError:
+                    pass
 
-        The credential can only travel as a query parameter, so any error that
-        quotes the URL would otherwise disclose it. ``HTTPStatusError`` embeds the
-        full URL in its message, so it is re-raised redacted rather than allowed
-        to reach a log or traceback intact.
+    def _check_quota(self) -> None:
+        """Refuse a paid call when the remaining budget is at the reserve.
+
+        The reserve exists for resolution: odds can be re-fetched later, but a
+        missed scores window loses an outcome forever, so the last credits are
+        kept for the irreversible job rather than the repeatable one.
         """
+        reserve = settings.odds_api_quota_reserve
+        if self.quota_remaining is not None and self.quota_remaining <= reserve:
+            raise QuotaExhausted(
+                f"{UNHEALTHY_MARKER}: Odds API quota at {self.quota_remaining}, "
+                f"at or below the reserve of {reserve}. Refusing further paid calls "
+                "so the remaining budget stays available for outcome resolution."
+            )
+
+    def _get(self, path: str, params: dict) -> list[dict]:
+        """Issue a checked, quota-tracked, redaction-safe GET."""
         if not self.api_key:
             raise ValueError("ODDS_API_KEY is not set")
-        resp = self._client.get(
-            f"/sports/{sport_key}/odds",
-            params={
-                "apiKey": self.api_key,
-                "regions": regions,
-                "markets": markets,
-                "oddsFormat": "american",
-            },
-        )
+        self._check_quota()
+        resp = self._client.get(path, params={"apiKey": self.api_key, **params})
+        self._record_quota(resp)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            # The credential can only travel as a query parameter, so any error
+            # quoting the URL discloses it. HTTPStatusError embeds the full URL
+            # in its message, so it is re-raised redacted.
             raise httpx.HTTPStatusError(
                 redact(str(exc)), request=exc.request, response=exc.response
             ) from None
         return resp.json()
+
+    def get_odds(self, sport_key: str, *, regions: str = "us", markets: str = "h2h") -> list[dict]:
+        """Return events with bookmaker odds.
+
+        Costs one quota credit — but ONLY if the response contains events;
+        empty responses are free (verified against the live counter).
+        """
+        return self._get(
+            f"/sports/{sport_key}/odds",
+            {"regions": regions, "markets": markets, "oddsFormat": "american"},
+        )
+
+    def get_scores(self, sport_key: str, *, days_from: int | None = None) -> list[dict]:
+        """Return events with final/live scores. 2 credits with days_from, 1 without.
+
+        ``days_from`` is validated locally rather than letting the API 422: a
+        config typo must not cost both a credit and a resolution pass inside a
+        window that cannot be revisited.
+        """
+        days = settings.resolution_days_from if days_from is None else days_from
+        if not 1 <= days <= MAX_SCORES_DAYS_FROM:
+            raise ValueError(
+                f"days_from must be between 1 and {MAX_SCORES_DAYS_FROM} "
+                f"(the API's ceiling); got {days}"
+            )
+        return self._get(f"/sports/{sport_key}/scores/", {"daysFrom": days})
 
 
 def _parse_commence_time(value: str | None) -> datetime | None:
