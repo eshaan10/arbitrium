@@ -17,6 +17,7 @@ from marketedge.divergence.engine import (
     OutcomeQuote,
     compute_divergences,
     detect_arbitrage,
+    kalshi_recommendation,
     score_event,
 )
 
@@ -576,3 +577,81 @@ def test_book_prices_present_even_when_unscored():
     assert status is DivergenceStatus.INSUFFICIENT_CONSENSUS
     assert rows[0].divergence is None  # score withheld...
     assert rows[0].book_prices == {"dk": -110.0}  # ...but observations shown
+
+
+# --- the Kalshi-native recommendation ----------------------------------------
+
+
+def test_recommends_buying_yes_when_kalshi_is_cheap():
+    kalshi = [_k("Chiefs", 0.50, bid=0.48, ask=0.50, ask_size=500.0)]
+    consensus = [_q("Chiefs", 0.56, n_books=9)]
+    rec = kalshi_recommendation(kalshi, consensus)
+    assert rec.side == "yes" and rec.team == "Chiefs"
+    assert rec.price == 0.50
+    assert abs(rec.fair_value - 0.56) < 1e-9
+    assert abs(rec.edge - 0.06) < 1e-9
+    assert rec.max_contracts == 500.0
+    assert rec.wins_if == "Chiefs wins"
+
+
+def test_recommends_buying_no_when_kalshi_is_expensive():
+    """The case a pure buy-Yes framing would silently drop.
+
+    Kalshi bids 0.55 for a team the books think is worth 0.45, so the edge is on
+    the other side. Kalshi expresses that as BUYING NO, not as selling — and No
+    costs exactly 1 - yes_bid.
+    """
+    kalshi = [_k("Chiefs", 0.55, bid=0.55, ask=0.57, bid_size=300.0)]
+    consensus = [_q("Chiefs", 0.45, n_books=9)]
+    rec = kalshi_recommendation(kalshi, consensus)
+    assert rec.side == "no" and rec.team == "Chiefs"
+    assert abs(rec.price - 0.45) < 1e-9  # 1 - 0.55
+    assert abs(rec.fair_value - 0.55) < 1e-9  # 1 - 0.45
+    assert abs(rec.edge - 0.10) < 1e-9
+    assert rec.max_contracts == 300.0
+    assert rec.wins_if == "Chiefs loses"
+
+
+def test_no_recommendation_when_priced_in():
+    """A dead-even market must produce NO pick rather than a manufactured one."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.49, ask=0.51)]
+    consensus = [_q("Chiefs", 0.50, n_books=9)]
+    assert kalshi_recommendation(kalshi, consensus) is None
+
+
+def test_spread_can_swallow_the_edge_entirely():
+    """Consensus differs from the mid, but neither side clears the touch."""
+    kalshi = [_k("Chiefs", 0.50, bid=0.45, ask=0.55)]
+    consensus = [_q("Chiefs", 0.52, n_books=9)]
+    assert kalshi_recommendation(kalshi, consensus) is None
+
+
+def test_picks_the_largest_edge_across_outcomes_and_sides():
+    kalshi = [
+        _k("Chiefs", 0.50, bid=0.49, ask=0.51, ask_size=10.0),
+        _k("Broncos", 0.50, bid=0.49, ask=0.51, ask_size=10.0, outcome="away"),
+    ]
+    consensus = [
+        _q("Chiefs", 0.54, n_books=9),                    # buy yes: +0.03
+        _q("Broncos", 0.46, n_books=9, outcome="away"),   # buy no:  +0.03... 
+    ]
+    rec = kalshi_recommendation(kalshi, consensus)
+    assert rec is not None and rec.edge > 0
+    # Whichever it picks must be internally consistent, never a mixed-up pairing.
+    assert (rec.side == "yes" and rec.fair_value > rec.price) or \
+           (rec.side == "no" and rec.fair_value > rec.price)
+
+
+def test_max_stake_is_bounded_by_resting_size():
+    kalshi = [_k("Chiefs", 0.50, bid=0.48, ask=0.50, ask_size=7.0)]
+    consensus = [_q("Chiefs", 0.56, n_books=9)]
+    rec = kalshi_recommendation(kalshi, consensus)
+    assert rec.max_contracts == 7.0
+    assert abs(rec.max_stake - 3.50) < 1e-9  # 7 contracts x 50c
+
+
+def test_recommendation_requires_a_kalshi_book():
+    """No executable price means no actionable recommendation."""
+    kalshi = [_k("Chiefs", 0.50)]  # no bid/ask
+    consensus = [_q("Chiefs", 0.60, n_books=9)]
+    assert kalshi_recommendation(kalshi, consensus) is None

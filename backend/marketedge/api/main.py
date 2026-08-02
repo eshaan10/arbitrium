@@ -239,6 +239,24 @@ def divergences(
                 "max_abs_divergence": _r(r.max_abs_divergence),
                 "best_net_edge": _r(r.best_net_edge),
                 "tradeable": r.tradeable,
+                # The Kalshi-native directional view: one platform, one buy.
+                # NOT guaranteed — see KalshiRecommendation on why this must
+                # never share language with arbitrage.
+                "recommendation": (
+                    {
+                        "team": r.recommendation.team,
+                        "side": r.recommendation.side,          # 'yes' | 'no', both buys
+                        "price": _r(r.recommendation.price, 4),
+                        "fair_value": _r(r.recommendation.fair_value, 4),
+                        "edge": _r(r.recommendation.edge, 4),
+                        "wins_if": r.recommendation.wins_if,
+                        "max_contracts": r.recommendation.max_contracts,
+                        "max_stake": _r(r.recommendation.max_stake, 2),
+                    }
+                    if r.recommendation
+                    else None
+                ),
+                "kalshi_series": r.kalshi_series,
                 "best_expected_value": _r(r.best_expected_value, 4),
                 # Risk-free, and therefore NOT a kind of net edge: an arbitrage
                 # pays regardless of outcome, while a net edge only pays if the
@@ -251,6 +269,11 @@ def divergences(
                         # GROSS: no fees, no execution risk. An upper bound, not a return.
                         "gross_profit": _r(r.arbitrage.gross_profit),
                         "limiting_depth": r.arbitrage.limiting_depth,
+                        # A Kalshi user cannot act on an arbitrage with no Kalshi
+                        # leg without holding both named sportsbook accounts, so
+                        # say so rather than implying it is available to them.
+                        "venues": sorted({l.venue for l in r.arbitrage.legs}),
+                        "includes_kalshi": any(l.venue == "kalshi" for l in r.arbitrage.legs),
                         "legs": [
                             {
                                 "team": leg.team,
@@ -286,6 +309,10 @@ def divergences(
                         "trade_side": o.trade_side,
                         "spread": _r(o.spread),
                         "resting_depth": o.resting_depth,
+                        "kalshi_bid": _r(o.kalshi_bid, 4),
+                        "kalshi_ask": _r(o.kalshi_ask, 4),
+                        "kalshi_ask_size": o.kalshi_ask_size,
+                        "kalshi_bid_size": o.kalshi_bid_size,
                         "expected_value_at_depth": _r(o.expected_value_at_depth, 4),
                         # Raw per-book American odds, so "9 books" can be shown
                         # as nine named prices instead of an abstract count.

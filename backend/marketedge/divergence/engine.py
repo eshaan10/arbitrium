@@ -160,6 +160,15 @@ class OutcomeDivergence:
     # stripped probability.
     book_prices: dict[str, float] | None = None
 
+    # Kalshi's executable touch, in dollars. Needed to say "buy at 49¢" rather
+    # than only reporting an abstract edge. ask_size/bid_size are kept separate
+    # from `resting_depth` (their minimum) because sizing a BUY depends on the
+    # side you actually hit, not on the weaker of the two.
+    kalshi_bid: float | None = None
+    kalshi_ask: float | None = None
+    kalshi_bid_size: float | None = None
+    kalshi_ask_size: float | None = None
+
     @property
     def abs_divergence(self) -> float | None:
         return None if self.divergence is None else abs(self.divergence)
@@ -215,6 +224,17 @@ class EventDivergence:
     home_away_source: str | None = None
     kalshi_event_ticker: str | None = None
     odds_api_event_id: str | None = None
+
+    # The Kalshi-native directional view. None when no side is mispriced, or when
+    # the consensus is not trustworthy enough to compare against.
+    recommendation: KalshiRecommendation | None = None
+
+    @property
+    def kalshi_series(self) -> str | None:
+        """Series ticker, for linking out to the Kalshi market."""
+        if not self.kalshi_event_ticker or "-" not in self.kalshi_event_ticker:
+            return None
+        return self.kalshi_event_ticker.split("-", 1)[0]
     # Independent of `status`: arbitrage needs no probability estimate, so it is
     # checked even when the consensus is too thin to score a divergence against.
     arbitrage: Arbitrage | None = None
@@ -279,6 +299,81 @@ class EventDivergence:
         """Expected dollars at the best fill — edge scaled by resting size."""
         trade = self.best_trade
         return trade.expected_value_at_depth if trade else None
+
+
+@dataclass(frozen=True)
+class KalshiRecommendation:
+    """A single-platform, single-action directional view — the Kalshi user's trade.
+
+    Categorically NOT arbitrage, and the two must never share vocabulary:
+
+    * This is **outcome risk**. You buy one contract on one platform. It returns
+      $1 if you are right and $0 if you are not, and it is only +EV *if the
+      sportsbook consensus is the better probability estimate than Kalshi's
+      price*. It can lose the entire stake. Nothing here is guaranteed.
+    * Arbitrage is **execution risk**: every outcome covered, so the payout does
+      not depend on who wins.
+
+    Both Kalshi actions are BUYS — buy Yes, or buy No — so a directional view is
+    always expressible as a purchase, never as a "sell". Buying No is priced at
+    ``1 - yes_bid``, which is exact rather than an approximation: Kalshi quotes
+    ``no_ask == 1 - yes_bid`` by construction (verified on 40/40 live markets).
+    Without the No side, two of ten live edges would have had no expressible
+    recommendation at all.
+    """
+
+    team: str
+    side: str  # 'yes' | 'no' — both are buys
+    price: float  # what one contract costs, 0..1
+    fair_value: float  # consensus probability of THIS side winning
+    edge: float  # fair_value - price, per contract
+    max_contracts: float | None  # size resting at that price; None if unknown
+
+    @property
+    def wins_if(self) -> str:
+        """Plain-English condition under which this contract pays $1."""
+        return f"{self.team} wins" if self.side == "yes" else f"{self.team} loses"
+
+    @property
+    def max_stake(self) -> float | None:
+        """Largest stake fillable at this price, in dollars."""
+        return None if self.max_contracts is None else self.max_contracts * self.price
+
+
+def kalshi_recommendation(
+    kalshi_quotes: list[OutcomeQuote], consensus_quotes: list[OutcomeQuote]
+) -> KalshiRecommendation | None:
+    """Best Kalshi-native buy, or None when no side is mispriced.
+
+    Considers buying Yes and buying No on every outcome, and returns the single
+    largest positive edge. Returns None rather than manufacturing a pick when
+    nothing clears — a dead-even market is a real answer, and forcing a
+    recommendation onto one would be the worst kind of false confidence.
+    """
+    consensus = {q.join_key: q for q in consensus_quotes}
+    best: KalshiRecommendation | None = None
+
+    for k in kalshi_quotes:
+        c = consensus.get(k.join_key)
+        if c is None or k.team is None:
+            continue
+        candidates = []
+        if k.ask is not None:
+            # Buy Yes: costs the ask, pays $1 if this team wins.
+            candidates.append(("yes", k.ask, c.implied_probability, k.ask_size))
+        if k.bid is not None:
+            # Buy No: costs 1 - yes_bid (exact), pays $1 if this team loses.
+            candidates.append(
+                ("no", 1.0 - k.bid, 1.0 - c.implied_probability, k.bid_size)
+            )
+        for side, price, fair, size in candidates:
+            edge = fair - price
+            if edge > 0 and (best is None or edge > best.edge):
+                best = KalshiRecommendation(
+                    team=k.team, side=side, price=price,
+                    fair_value=fair, edge=edge, max_contracts=size,
+                )
+    return best
 
 
 @dataclass(frozen=True)
@@ -459,6 +554,10 @@ def score_event(
                     # prices are real observations, and showing them is how a
                     # reader sees WHY a thin consensus was not trusted.
                     book_prices=c.book_prices if c else None,
+                    kalshi_bid=k.bid if k else None,
+                    kalshi_ask=k.ask if k else None,
+                    kalshi_bid_size=k.bid_size if k else None,
+                    kalshi_ask_size=k.ask_size if k else None,
                 )
             )
         return out
@@ -653,6 +752,17 @@ def compute_divergences(
                 home_away_source=e.home_away_source,
                 kalshi_event_ticker=e.kalshi_event_ticker,
                 odds_api_event_id=e.odds_api_event_id,
+                # Gated on SCORED: recommending a side off a one-book "consensus"
+                # would be exactly the false precision min_consensus_books exists
+                # to prevent.
+                recommendation=(
+                    kalshi_recommendation(
+                        quotes.get((e.id, KALSHI_SOURCE), []),
+                        quotes.get((e.id, CONSENSUS_SOURCE), []),
+                    )
+                    if st is DivergenceStatus.SCORED
+                    else None
+                ),
             )
         )
 
