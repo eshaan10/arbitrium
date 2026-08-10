@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     calibration_min_fit_samples: int = 200  # below this, no isotonic fit
     calibration_trusted_samples: int = 1000  # below this, always "provisional"
 
+    # How often to record standing recommendations. Frequent enough that a call
+    # existing only briefly still gets captured before kickoff, but this is a
+    # pure database pass — no API cost — so the interval is about coverage, not
+    # budget.
+    calibration_poll_interval_seconds: int = 1_800  # 30 min
+
     # Reliability-curve bins. Few, because 290 games across 10 bins is ~29 each.
     calibration_bins: int = 5
 

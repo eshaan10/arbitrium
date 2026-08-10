@@ -232,13 +232,23 @@ def record_prediction(
     entry_prob: float,
     flagged_at: datetime,
     origin: str,
-) -> None:
-    """Upsert one prediction. Re-running must update, never duplicate.
+    first_wins: bool = False,
+) -> bool:
+    """Write one prediction. ONE ROW PER (event, origin) — never per team.
 
-    Duplicates would silently inflate the sample size the whole gate depends on,
-    which is the one number that must not be able to drift.
+    ``first_wins`` is the difference between the two origins, and it matters:
+
+    * LIVE recording sets it. The recommended side genuinely moves as prices
+      drift, and a track record must preserve what was FIRST said rather than
+      quietly revising toward whatever looked best closest to kickoff. Later
+      passes leave the row untouched.
+    * RECONSTRUCTION leaves it False and upserts. It is deterministic — the same
+      history yields the same call — so re-running should refresh rather than
+      calcify a value computed by older logic.
+
+    Returns True when a row was actually written.
     """
-    stmt = pg_insert(CalibrationHistory).values(
+    values = dict(
         event_id=event_id,
         subject_team=subject_team,
         predicted_prob=predicted_prob,
@@ -247,17 +257,21 @@ def record_prediction(
         entry_prob=entry_prob,
         flagged_at=flagged_at,
         origin=origin,
-    ).on_conflict_do_update(
-        index_elements=["event_id", "subject_team", "origin"],
-        set_={
-            "predicted_prob": predicted_prob,
-            "divergence_score": divergence_score,
-            "confidence_band": band,
-            "entry_prob": entry_prob,
-            "flagged_at": flagged_at,
-        },
     )
-    session.execute(stmt)
+    stmt = pg_insert(CalibrationHistory).values(**values)
+    if first_wins:
+        stmt = stmt.on_conflict_do_nothing(index_elements=["event_id", "origin"])
+    else:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["event_id", "origin"],
+            set_={k: v for k, v in values.items() if k not in ("event_id", "origin")},
+        )
+    # RETURNING, not rowcount. psycopg reports rowcount = -1 for ON CONFLICT
+    # inserts whether or not a row landed, so a rowcount test silently reports
+    # zero writes on a pass that wrote everything — precisely the
+    # attempted-versus-written confusion that hid a week-long outage. With
+    # RETURNING, a skipped insert yields no row and an accepted one yields its id.
+    return session.execute(stmt.returning(CalibrationHistory.id)).first() is not None
 
 
 def grade_pending(session: Session, *, now: datetime | None = None) -> int:
@@ -296,6 +310,75 @@ def grade_pending(session: Session, *, now: datetime | None = None) -> int:
                 record.clv = obs.clv
         graded += 1
     return graded
+
+
+def record_live_recommendations(session: Session, *, now: datetime | None = None) -> int:
+    """Write a 'live' row for every upcoming event the system currently recommends.
+
+    This is the genuinely prospective record — written BEFORE the game, from data
+    available now, with no hindsight of any kind. It is the only evidence that can
+    honestly be called a track record, which is why it is worth starting to
+    accumulate immediately even though nothing can be reported from it for months.
+
+    First call wins. The recommended side drifts with prices, and revising the
+    recorded call as kickoff approaches would quietly select the version that had
+    the most information — a track record graded on its best moment is not a track
+    record.
+    """
+    moment = now or datetime.now(timezone.utc)
+    events = session.execute(
+        select(Event).where(
+            Event.status == "scheduled",
+            Event.scheduled_start > moment,
+        )
+    ).scalars().all()
+
+    written = 0
+    for event in events:
+        kalshi, consensus = _quotes_at(session, event.id, moment)
+        if not kalshi or not consensus:
+            continue
+        books = min((q.n_books for q in consensus if q.n_books is not None), default=0)
+        if books < settings.min_consensus_books:
+            continue
+        rec = kalshi_recommendation(kalshi, consensus)
+        if rec is None:
+            continue
+        if record_prediction(
+            session,
+            event_id=event.id,
+            subject_team=rec.team,
+            predicted_prob=rec.fair_value,
+            divergence_score=abs(rec.fair_value - rec.price),
+            band=confidence_band(books, rec.max_contracts),
+            entry_prob=rec.price,
+            flagged_at=moment,
+            origin=ORIGIN_LIVE,
+            first_wins=True,
+        ):
+            written += 1
+    return written
+
+
+def run_calibration(session_factory=None) -> dict:
+    """One calibration pass: record live calls, then grade whatever has resolved.
+
+    Ordered that way deliberately — recording is time-critical (a call not written
+    before kickoff can never be written), while grading only needs to happen
+    eventually.
+    """
+    from marketedge.db.engine import get_session
+
+    session = (session_factory or get_session)()
+    counts = {"live_recorded": 0, "graded": 0}
+    try:
+        counts["live_recorded"] = record_live_recommendations(session)
+        counts["graded"] = grade_pending(session)
+        session.commit()
+    finally:
+        session.close()
+    logger.info("Calibration pass: %s", counts)
+    return counts
 
 
 def backfill_reconstructions(session: Session) -> int:

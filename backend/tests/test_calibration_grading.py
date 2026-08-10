@@ -302,3 +302,62 @@ def test_backfill_is_idempotent(db_session):
         .where(CalibrationHistory.event_id == ev.id)
     ).scalar()
     assert n == 1
+
+
+# --- the pass must report what it actually wrote ------------------------------
+
+
+def test_a_written_row_is_reported_as_written(db_session):
+    """psycopg reports rowcount = -1 for ON CONFLICT inserts whether or not a row
+    landed, so a rowcount test claims zero writes on a pass that wrote everything.
+
+    That is the same attempted-versus-written confusion that once hid a week-long
+    outage: the health tracker and ingest_runs both key on rows_written, so a pass
+    that under-reports looks exactly like a broken one.
+    """
+    ev = _game(db_session, days_ago=-3, status="scheduled")
+    kw = dict(
+        event_id=ev.id, subject_team=ev.home_team, predicted_prob=0.60,
+        divergence_score=0.02, band="good", entry_prob=0.58,
+        flagged_at=datetime.now(UTC), origin=ORIGIN_LIVE,
+    )
+    assert record_prediction(db_session, first_wins=True, **kw) is True
+    assert record_prediction(db_session, first_wins=True, **kw) is False
+
+
+def test_first_call_wins_for_live_recording(db_session):
+    """The recommended side drifts with prices. A track record must preserve what
+    was FIRST said, not quietly revise toward whatever looked best at kickoff."""
+    ev = _game(db_session, days_ago=-3, status="scheduled")
+    base = dict(event_id=ev.id, divergence_score=0.02, band="good",
+                flagged_at=datetime.now(UTC), origin=ORIGIN_LIVE)
+    record_prediction(db_session, subject_team="Kansas City Chiefs",
+                      predicted_prob=0.60, entry_prob=0.58, first_wins=True, **base)
+    record_prediction(db_session, subject_team="Denver Broncos",
+                      predicted_prob=0.70, entry_prob=0.55, first_wins=True, **base)
+    db_session.flush()
+
+    rows = db_session.execute(
+        select(CalibrationHistory).where(CalibrationHistory.event_id == ev.id)
+    ).scalars().all()
+    assert len(rows) == 1, "a flipped recommendation must not create a second row"
+    assert rows[0].subject_team == "Kansas City Chiefs"  # the first call stands
+
+
+def test_reconstruction_refreshes_rather_than_calcifying(db_session):
+    """Reconstruction is deterministic, so re-running should update to whatever
+    current logic derives — unlike a live record, which is history."""
+    ev = _game(db_session, days_ago=2, winner="Kansas City Chiefs")
+    base = dict(event_id=ev.id, divergence_score=0.02, band="good",
+                flagged_at=datetime.now(UTC), origin=ORIGIN_RECONSTRUCTED)
+    record_prediction(db_session, subject_team="Kansas City Chiefs",
+                      predicted_prob=0.60, entry_prob=0.58, **base)
+    record_prediction(db_session, subject_team="Denver Broncos",
+                      predicted_prob=0.70, entry_prob=0.55, **base)
+    db_session.flush()
+
+    rows = db_session.execute(
+        select(CalibrationHistory).where(CalibrationHistory.event_id == ev.id)
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].subject_team == "Denver Broncos"  # refreshed

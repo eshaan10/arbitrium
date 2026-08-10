@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 from prefect import flow, task
 
+from marketedge.calibration import grading
 from marketedge.config import settings
 from marketedge.db.engine import get_session
 from marketedge.ingestion import kalshi, odds_api, resolution
@@ -74,6 +75,25 @@ def kalshi_ingest_flow() -> IngestResult:
 def odds_ingest_flow() -> IngestResult:
     """Single ingest pass over the configured Odds API sports."""
     return ingest_odds_task()
+
+
+@task(retries=1, retry_delay_seconds=60)
+def calibration_task() -> IngestResult:
+    # Purely database-side: records the recommendations currently standing and
+    # grades whatever has resolved. No external API, so no quota and no retries
+    # worth spending.
+    counts = grading.run_calibration()
+    return IngestResult(
+        source="calibration",
+        rows_attempted=counts["live_recorded"] + counts["graded"],
+        rows_written=counts["live_recorded"] + counts["graded"],
+    )
+
+
+@flow(name="calibration")
+def calibration_flow() -> IngestResult:
+    """Record live recommendations, then grade resolved ones."""
+    return calibration_task()
 
 
 @flow(name="outcome-resolution")
@@ -150,6 +170,19 @@ def run_forever() -> None:
         # A flat 15-minute interval burned the entire monthly credit budget in
         # five days; this spends it where prices actually move.
         _Source("odds_api", odds_ingest_flow, _odds_interval),
+        _Source(
+            "calibration",
+            calibration_flow,
+            settings.calibration_poll_interval_seconds,
+            # Like resolution, this legitimately writes nothing for long stretches
+            # (no new recommendations, nothing newly resolved), so the generic
+            # zero-write alarm is the wrong signal.
+            health=IngestHealth(
+                "calibration",
+                zero_write_warn_seconds=settings.resolution_zero_write_warn_seconds,
+                zero_write_error_seconds=settings.resolution_zero_write_error_seconds,
+            ),
+        ),
         _Source(
             "resolution",
             resolution_flow,
