@@ -16,9 +16,14 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from marketedge.calibration import grading
+from marketedge.calibration import model as cal_model
+from marketedge.calibration.clv import ClvObservation
+from marketedge.calibration.clv import summarise as summarise_clv
+from marketedge.calibration.sample import assess, brier_score, wilson_interval
 from marketedge.config import settings
 from marketedge.db.engine import SessionLocal, engine
-from marketedge.db.models import Event, OddsSnapshot
+from marketedge.db.models import CalibrationHistory, Event, OddsSnapshot
 from marketedge.divergence.engine import DivergenceStatus, compute_divergences
 from marketedge.ingestion.resolution import PendingSummary, pending_resolution
 from marketedge.logging_config import configure_logging
@@ -379,6 +384,126 @@ def event_history(
         "away_team": ev.away_team,
         "series": list(series.values()),
         "total_points": len(rows),
+    }
+
+
+def _gated(pairs: list, label: str) -> dict:
+    """Report a body of evidence, with the sample gate attached to every number.
+
+    Nothing here is emitted without its verdict. A rate is withheld entirely
+    below the floor rather than shown with a caveat, because a number that
+    exists gets quoted regardless of the words next to it.
+    """
+    verdict = assess(len(pairs))
+    out: dict = {
+        "label": label,
+        "n": verdict.n,
+        "status": verdict.status.value,
+        "reason": verdict.reason,
+        "accuracy": None,
+        "accuracy_95ci": None,
+        "brier_score": None,
+        "reliability_bins": [],
+        "calibration_curve": None,
+    }
+    if not verdict.may_report_rate:
+        return out
+
+    hits = sum(1 for _, hit in pairs if hit)
+    ci = wilson_interval(hits, len(pairs))
+    out["accuracy"] = round(hits / len(pairs), 4)
+    out["accuracy_95ci"] = None if ci is None else [round(ci[0], 4), round(ci[1], 4)]
+    out["brier_score"] = round(brier_score(pairs), 4)
+    out["reliability_bins"] = [
+        {
+            "range": [b.lower, b.upper], "n": b.n,
+            "mean_predicted": None if b.mean_predicted is None else round(b.mean_predicted, 4),
+            "observed_rate": None if b.observed_rate is None else round(b.observed_rate, 4),
+            "gap": None if b.gap is None else round(b.gap, 4),
+        }
+        for b in cal_model.reliability_bins(pairs, settings.calibration_bins)
+    ]
+
+    fitted = cal_model.fit(pairs)
+    if fitted.fitted:
+        out["calibration_curve"] = [
+            {"predicted": round(pt.predicted, 4), "calibrated": round(pt.calibrated, 4), "n": pt.n}
+            for pt in fitted.points
+        ]
+    return out
+
+
+@app.get("/performance")
+def performance(db: Session = Depends(get_db)) -> dict:
+    """The system grading its own accuracy — with the sample size in front.
+
+    Three separate bodies of evidence, never blended:
+
+    * SOURCE RELIABILITY tests the project's premise, that sportsbook consensus
+      is a better probability estimate than Kalshi's price. Derived from
+      append-only snapshots plus recorded winners, so it needs no prior recording.
+    * TRACK RECORD grades what the system actually recommended, split by origin:
+      'live' is a genuine prospective record, 'reconstructed' is a backtest built
+      from history. Reported apart so a backtest cannot borrow the credibility of
+      a live record.
+    * CLOSING-LINE VALUE needs no outcomes at all, only price history, so it is
+      the one signal available before enough games resolve. It is evidence about
+      the SIGNAL, not proof of profit.
+    """
+    sources = {
+        src: _gated(grading.source_reliability_pairs(db, src), f"{src} closing price")
+        for src in ("kalshi", "consensus")
+    }
+
+    track: dict[str, dict] = {}
+    clv_by_origin: dict[str, dict] = {}
+    for origin in (grading.ORIGIN_LIVE, grading.ORIGIN_RECONSTRUCTED):
+        rows = db.execute(
+            select(CalibrationHistory).where(
+                CalibrationHistory.origin == origin,
+                CalibrationHistory.outcome_correct.isnot(None),
+            )
+        ).scalars().all()
+        track[origin] = _gated(
+            [(float(r.predicted_prob), bool(r.outcome_correct)) for r in rows],
+            f"recommendations ({origin})",
+        )
+
+        priced = db.execute(
+            select(CalibrationHistory).where(
+                CalibrationHistory.origin == origin,
+                CalibrationHistory.clv.isnot(None),
+            )
+        ).scalars().all()
+        summary = summarise_clv([
+            ClvObservation(
+                event_id=r.event_id, team=r.subject_team or "", side="yes",
+                entry_prob=float(r.entry_prob), closing_prob=float(r.closing_prob),
+                entry_at=r.flagged_at, closing_at=r.flagged_at,
+            )
+            for r in priced if r.entry_prob is not None and r.closing_prob is not None
+        ])
+        clv_by_origin[origin] = {
+            "n": summary.n,
+            "mean_clv": None if summary.mean_clv is None else round(summary.mean_clv, 4),
+            "beat_close": summary.beat_close,
+            "beat_rate": None if summary.beat_rate is None else round(summary.beat_rate, 4),
+        }
+
+    return {
+        "thresholds": {
+            "min_report_samples": settings.calibration_min_report_samples,
+            "min_fit_samples": settings.calibration_min_fit_samples,
+            "trusted_samples": settings.calibration_trusted_samples,
+        },
+        "source_reliability": sources,
+        "track_record": track,
+        "closing_line_value": clv_by_origin,
+        "note": (
+            "Counted in GAMES, not outcome rows: the two sides of a two-way market "
+            "are one bet. A curve is refused below the fit floor rather than shown "
+            "with a warning, and stays provisional for a full first season."
+        ),
     }
 
 

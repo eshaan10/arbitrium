@@ -101,6 +101,24 @@ class Settings(BaseSettings):
     # Documentation-as-config: the ceiling every pacing decision above answers to.
     odds_api_monthly_credit_budget: int = 500
 
+    # --- Calibration (Phase 3) ---------------------------------------------
+    # Sample-size gates. This system starts at n=1 and a full NFL season is only
+    # ~290 games, so these are set to keep a first-season curve honest rather
+    # than to unlock features quickly. Counted in GAMES, never in outcome rows:
+    # the two sides of a two-way market are perfectly anti-correlated, so
+    # counting both would shrink every interval by sqrt(2) for free.
+    calibration_min_report_samples: int = 25  # below this, no rate at all
+    calibration_min_fit_samples: int = 200  # below this, no isotonic fit
+    calibration_trusted_samples: int = 1000  # below this, always "provisional"
+
+    # Reliability-curve bins. Few, because 290 games across 10 bins is ~29 each.
+    calibration_bins: int = 5
+
+    # Closing-line value: the last snapshot strictly before kickoff is the
+    # "closing" price. A game needs at least this many minutes of pre-kickoff
+    # history for the close to mean anything.
+    clv_min_lead_minutes: int = 30
+
     # --- Ingest health (see scheduler/health.py) ---------------------------
     # A pass that raises is unambiguously broken, so the failure threshold is
     # tight: 3 consecutive failures (~15 min at a 300s Kalshi interval) escalates

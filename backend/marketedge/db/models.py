@@ -133,6 +133,19 @@ class CalibrationHistory(Base):
     predicted_prob: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
     confidence_band: Mapped[str] = mapped_column(String, nullable=False)
     outcome_correct: Mapped[bool | None] = mapped_column()  # NULL until resolved
+
+    # 'live' = written before the game from data available then (a genuine
+    # prospective record). 'reconstructed' = derived afterwards from append-only
+    # snapshots (legitimate, but a backtest). Never blended in a headline number.
+    origin: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'live'"))
+    # Canonical team the prediction is ABOUT, so the row stays auditable after a
+    # home/away re-label. See migration 0008.
+    subject_team: Mapped[str | None] = mapped_column(String)
+    # Closing-line value: what Kalshi charged when the call was made vs its last
+    # price before kickoff. Needs no outcome, so it reports months earlier.
+    entry_prob: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    closing_prob: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    clv: Mapped[float | None] = mapped_column(Numeric(7, 4))
     flagged_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     graded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
