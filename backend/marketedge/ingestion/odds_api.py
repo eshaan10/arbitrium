@@ -23,13 +23,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from marketedge.config import settings
 from marketedge.db.engine import get_session
-from marketedge.db.models import Event
+from marketedge.db.models import Event, OddsSnapshot
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.normalize import NormalizedSnapshot, normalize_odds_api_consensus
 from marketedge.ingestion.result import IngestResult
@@ -272,11 +272,68 @@ def _enrich_matched_event(session: Session, event_id: uuid_mod.UUID, extract: Od
     )
 
 
+BOOK_COUNT_STALE_MARKER = "CONSENSUS_BOOK_COUNT_STALE"
+
+
+def _warn_if_book_count_would_be_lost(
+    session: Session, event_id: uuid_mod.UUID, outcome: str, prob: float, n_books: int | None
+) -> None:
+    """Detect the one case where the dedup trigger drops information we need.
+
+    The trigger (migration 0002) suppresses a snapshot whose implied_probability
+    is unchanged, keyed on PRICE ALONE. If the consensus median holds steady while
+    the number of contributing bookmakers changes, the new row is dropped and
+    ``n_books`` stays at its old value — which could leave an event stuck below
+    ``min_consensus_books`` and silently suppress its recommendation.
+
+    Measured incidence is currently ZERO (stored matched live on 272/272 events),
+    because adding or removing a book almost always moves the median. And the
+    residual risk sits where it matters least: a median is likeliest to hold when
+    many books already agree, which is the regime already above the floor.
+
+    So this instruments rather than fixes. Widening the trigger to remove a
+    failure nobody has observed would put a correctness-critical piece of the
+    dedup guarantee at risk for no measured benefit. If this marker ever appears,
+    the assumption has broken and the structural fix becomes justified.
+    """
+    if n_books is None:
+        return
+    stored = session.execute(
+        select(OddsSnapshot.implied_probability, OddsSnapshot.order_book_depth)
+        .where(
+            OddsSnapshot.event_id == event_id,
+            OddsSnapshot.source == "consensus",
+            OddsSnapshot.outcome == outcome,
+        )
+        .order_by(OddsSnapshot.snapshot_time.desc(), OddsSnapshot.id.desc())
+        .limit(1)
+    ).first()
+    if stored is None:
+        return
+    depth = stored.order_book_depth if isinstance(stored.order_book_depth, dict) else {}
+    stored_books = depth.get("n_books")
+    if stored_books is None or stored_books == n_books:
+        return
+    if float(stored.implied_probability) != float(prob):
+        return  # price moved, so the row lands and the new count is recorded
+    logger.warning(
+        "%s: event %s outcome %s — median unchanged at %.4f but book count moved "
+        "%s -> %s. The dedup trigger will drop this row, leaving n_books stale. "
+        "This was measured at zero incidence; its appearance means that no longer holds.",
+        BOOK_COUNT_STALE_MARKER, event_id, outcome, float(prob), stored_books, n_books,
+    )
+
+
 def _insert_consensus_snapshots(session: Session, event_id: uuid_mod.UUID, extract: OddsEventExtract) -> int:
     """Insert consensus snapshots, anchoring each to its authoritative team."""
     key = extract.key
     now = datetime.now(tz=key.start.tzinfo) if key.start.tzinfo else datetime.utcnow()
     team_for = {"home": key.home_team, "away": key.away_team, "draw": None}
+    for snap in extract.snapshots:
+        _warn_if_book_count_would_be_lost(
+            session, event_id, snap.outcome, snap.implied_probability,
+            (snap.order_book_depth or {}).get("n_books"),
+        )
     return insert_snapshots(
         session,
         [

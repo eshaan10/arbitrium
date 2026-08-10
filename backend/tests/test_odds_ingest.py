@@ -6,7 +6,7 @@ they never collide with (or pollute) the real committed events.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -118,3 +118,91 @@ def test_unmatched_creates_single_source_odds_only_event(db_session):
     assert row.kalshi_event_ticker is None  # single-source
     assert row.home_away_source == "odds_api"
     assert row.home_team == "Buffalo Bills"
+
+
+# --- the dedup / book-count interaction --------------------------------------
+
+
+def test_warns_when_a_book_count_change_would_be_dropped(db_session, caplog):
+    """The one case the dedup trigger silently loses.
+
+    Measured incidence is currently zero (stored matched live on 272/272 events),
+    because adding a book almost always moves the median. This does not change
+    dedup semantics — it just makes the assumption falsifiable, so we would find
+    out if it ever stops holding.
+    """
+    import logging
+
+    from marketedge.ingestion.odds_api import (
+        BOOK_COUNT_STALE_MARKER,
+        _warn_if_book_count_would_be_lost,
+    )
+    from marketedge.ingestion.snapshots import insert_snapshots
+
+    ev = Event(
+        sport="nfl", league="NFL", home_team="Kansas City Chiefs",
+        away_team="Denver Broncos",
+        scheduled_start=datetime.now(UTC) + timedelta(days=800), status="scheduled",
+    )
+    db_session.add(ev)
+    db_session.flush()
+    now = datetime.now(UTC)
+    insert_snapshots(db_session, [{
+        "event_id": ev.id, "source": "consensus", "outcome": "home",
+        "team": "Kansas City Chiefs", "implied_probability": 0.7000,
+        "price_format": "consensus", "snapshot_time": now, "ingested_at": now,
+        "order_book_depth": {"n_books": 3},
+    }])
+    db_session.flush()
+
+    with caplog.at_level(logging.WARNING):
+        _warn_if_book_count_would_be_lost(db_session, ev.id, "home", 0.7000, 9)
+    assert BOOK_COUNT_STALE_MARKER in caplog.text
+
+
+def test_no_warning_when_the_price_moved(db_session, caplog):
+    """A moved median means the row lands and the new count is recorded."""
+    import logging
+
+    from marketedge.ingestion.odds_api import (
+        BOOK_COUNT_STALE_MARKER,
+        _warn_if_book_count_would_be_lost,
+    )
+    from marketedge.ingestion.snapshots import insert_snapshots
+
+    ev = Event(
+        sport="nfl", league="NFL", home_team="Buffalo Bills", away_team="Miami Dolphins",
+        scheduled_start=datetime.now(UTC) + timedelta(days=801), status="scheduled",
+    )
+    db_session.add(ev)
+    db_session.flush()
+    now = datetime.now(UTC)
+    insert_snapshots(db_session, [{
+        "event_id": ev.id, "source": "consensus", "outcome": "home",
+        "team": "Buffalo Bills", "implied_probability": 0.7000,
+        "price_format": "consensus", "snapshot_time": now, "ingested_at": now,
+        "order_book_depth": {"n_books": 3},
+    }])
+    db_session.flush()
+
+    with caplog.at_level(logging.WARNING):
+        _warn_if_book_count_would_be_lost(db_session, ev.id, "home", 0.7100, 9)
+    assert BOOK_COUNT_STALE_MARKER not in caplog.text
+
+
+def test_no_warning_on_a_first_observation(db_session, caplog):
+    import logging
+
+    from marketedge.ingestion.odds_api import (
+        BOOK_COUNT_STALE_MARKER,
+        _warn_if_book_count_would_be_lost,
+    )
+    ev = Event(
+        sport="nfl", league="NFL", home_team="Chicago Bears", away_team="Green Bay Packers",
+        scheduled_start=datetime.now(UTC) + timedelta(days=802), status="scheduled",
+    )
+    db_session.add(ev)
+    db_session.flush()
+    with caplog.at_level(logging.WARNING):
+        _warn_if_book_count_would_be_lost(db_session, ev.id, "home", 0.7000, 9)
+    assert BOOK_COUNT_STALE_MARKER not in caplog.text
