@@ -235,3 +235,67 @@ def test_sport_keys_cover_preseason_and_regular_season():
     keys = sport_keys_for(["nfl"])
     assert "americanfootball_nfl" in keys
     assert "americanfootball_nfl_preseason" in keys  # the gap Phase 2 left open
+
+
+# --- the scheduled_start clobber ---------------------------------------------
+
+
+def test_kalshi_upsert_does_not_clobber_an_authoritative_kickoff(db_session):
+    """Regression: the Odds API's exact kickoff must survive the next Kalshi poll.
+
+    Kalshi's start comes from the event ticker and is only a DATE, landing on
+    midnight UTC while the real kickoff is an evening US time up to ~24h later.
+    The upsert used to overwrite the enriched value every 5 minutes, which made
+    the 84h resolution window fire up to a day early — that is how a real outcome
+    was condemned before it had actually aged out.
+    """
+    from marketedge.ingestion.kalshi import KalshiEventMetadata, upsert_event
+
+    authoritative = datetime.now(UTC) + timedelta(days=600, hours=23)
+    placeholder = authoritative.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    ev = Event(
+        sport="nfl", league="NFL", home_team="Arizona Cardinals",
+        away_team="Carolina Panthers", scheduled_start=authoritative,
+        status="scheduled", home_away_source="odds_api",
+        kalshi_event_ticker="KXNFLGAME-99AUG06CARARI",
+    )
+    db_session.add(ev)
+    db_session.flush()
+
+    upsert_event(db_session, KalshiEventMetadata(
+        kalshi_event_ticker="KXNFLGAME-99AUG06CARARI", sport="nfl", league="NFL",
+        home_team="Carolina Panthers", away_team="Arizona Cardinals",
+        scheduled_start=placeholder, outcome_markets={},
+    ))
+    db_session.flush()
+    db_session.refresh(ev)
+
+    assert ev.scheduled_start == authoritative, "the exact kickoff was clobbered"
+    assert ev.home_team == "Arizona Cardinals"  # home/away still protected too
+
+
+def test_kalshi_upsert_still_refreshes_a_provisional_kickoff(db_session):
+    """Protection applies only once a source is authoritative — a still-provisional
+    event must keep tracking Kalshi, since postponements really do move."""
+    from marketedge.ingestion.kalshi import KalshiEventMetadata, upsert_event
+
+    original = datetime.now(UTC) + timedelta(days=601)
+    moved = original + timedelta(days=1)
+    ev = Event(
+        sport="nfl", league="NFL", home_team="Chicago Bears", away_team="Green Bay Packers",
+        scheduled_start=original, status="scheduled",
+        home_away_source="kalshi_provisional",
+        kalshi_event_ticker="KXNFLGAME-99AUG07GBCHI",
+    )
+    db_session.add(ev)
+    db_session.flush()
+
+    upsert_event(db_session, KalshiEventMetadata(
+        kalshi_event_ticker="KXNFLGAME-99AUG07GBCHI", sport="nfl", league="NFL",
+        home_team="Chicago Bears", away_team="Green Bay Packers",
+        scheduled_start=moved, outcome_markets={},
+    ))
+    db_session.flush()
+    db_session.refresh(ev)
+    assert ev.scheduled_start == moved

@@ -41,8 +41,10 @@ from sqlalchemy.orm import Session
 from marketedge.config import settings
 from marketedge.db.engine import get_session
 from marketedge.db.models import Event
+from marketedge.ingestion.espn import fetch_results
 from marketedge.ingestion.events import find_event_by_match
 from marketedge.ingestion.odds_api import ODDS_SPORTS, OddsApiClient, OddsSport
+from marketedge.ingestion.outcomes import ScoreExtract, coerce_score, decide_winner
 from marketedge.ingestion.result import IngestResult
 from marketedge.matching import EventKey, MatchStatus
 from marketedge.reference.teams import resolve_by_name
@@ -51,8 +53,10 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "resolution"
 RESOLUTION_SOURCE = "odds_api_scores"
+ESPN_RESOLUTION_SOURCE = "espn_scoreboard"
 CONFLICT_MARKER = "RESOLUTION_CONFLICT"
 DATA_LOST_MARKER = "RESOLUTION_DATA_LOST"
+RECOVERED_MARKER = "RESOLUTION_RECOVERED"
 
 STATUS_SCHEDULED = "scheduled"
 STATUS_FINAL = "final"
@@ -64,50 +68,6 @@ REASON_WINDOW_EXPIRED = "window_expired"
 # ---------------------------------------------------------------------------
 # Pure extraction
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ScoreExtract:
-    """One completed game's result, with teams already canonicalised."""
-
-    odds_api_event_id: str
-    home_team: str
-    away_team: str
-    home_score: int
-    away_score: int
-    winner_team: str | None  # None means DRAW, and only ever draw
-    commence_time: datetime | None
-    sport: str
-
-
-def coerce_score(value: object) -> int | None:
-    """Parse a ``scores[].score``, which the API sends as a STRING ("5").
-
-    Mirrors the discipline in ``normalize._coerce_price``: this exact class of
-    bug — a numeric field arriving as a string — already cost this project a
-    silent ingestion failure once. Returns None for missing or unparseable
-    rather than defaulting to 0, because a wrong 0 fabricates a shutout.
-    """
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(float(str(value).strip()))
-    except (TypeError, ValueError):
-        return None
-
-
-def decide_winner(
-    home_team: str, away_team: str, home_score: int, away_score: int
-) -> str | None:
-    """Return the winning TEAM NAME, or None for a tie.
-
-    Deliberately never returns 'home'/'away'. The function has no concept of home
-    and away beyond which score belongs to which name, so its output cannot be
-    invalidated by a later authoritative home/away correction.
-    """
-    if home_score == away_score:
-        return None
-    return home_team if home_score > away_score else away_team
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -203,11 +163,15 @@ def _find_event_id(session: Session, extract: ScoreExtract):
     back to the same matcher both ingestion paths use — otherwise every
     single-source event would be permanently ungradeable.
     """
-    event_id = session.execute(
-        select(Event.id).where(Event.odds_api_event_id == extract.odds_api_event_id)
-    ).scalar_one_or_none()
-    if event_id is not None:
-        return event_id, MatchStatus.MATCHED
+    # The truthiness guard is load-bearing. SQLAlchemy renders `== None` as
+    # `IS NULL`, so an extract with no odds id (every ESPN one) would otherwise
+    # match an arbitrary Kalshi-only event and resolve the WRONG game.
+    if extract.odds_api_event_id:
+        event_id = session.execute(
+            select(Event.id).where(Event.odds_api_event_id == extract.odds_api_event_id)
+        ).scalar_one_or_none()
+        if event_id is not None:
+            return event_id, MatchStatus.MATCHED
 
     if extract.commence_time is None:
         return None, MatchStatus.UNMATCHED
@@ -215,8 +179,14 @@ def _find_event_id(session: Session, extract: ScoreExtract):
     return find_event_by_match(session, key)
 
 
-def resolve_event(session: Session, extract: ScoreExtract) -> ResolutionOutcome:
-    """Record one result. Idempotent; never overwrites a differing result."""
+def resolve_event(
+    session: Session, extract: ScoreExtract, *, source: str = RESOLUTION_SOURCE
+) -> ResolutionOutcome:
+    """Record one result. Idempotent; never overwrites a differing result.
+
+    ``source`` records WHICH provider supplied the outcome, so a value recovered
+    from the fallback is distinguishable from one collected on time.
+    """
     event_id, status = _find_event_id(session, extract)
     if status is MatchStatus.AMBIGUOUS:
         logger.warning(
@@ -231,6 +201,8 @@ def resolve_event(session: Session, extract: ScoreExtract) -> ResolutionOutcome:
     # read-then-write avoids a race between concurrent passes.
     result = session.execute(
         update(Event)
+        # != FINAL, so an 'unresolvable' row can still be recovered by the
+        # fallback; a genuinely final result is never overwritten.
         .where(Event.id == event_id, Event.status != STATUS_FINAL)
         .values(
             home_score=extract.home_score,
@@ -240,7 +212,7 @@ def resolve_event(session: Session, extract: ScoreExtract) -> ResolutionOutcome:
             # OUR observation time, not the game's end time. `scores[].last_update`
             # is the closest available proxy for the latter if ever needed.
             resolved_at=func.now(),
-            resolution_source=RESOLUTION_SOURCE,
+            resolution_source=source,
             unresolvable_reason=None,
             updated_at=func.now(),
         )
@@ -278,6 +250,11 @@ class PendingSummary:
     sports: list[str]
     oldest_pending_start: datetime | None
     expired: int
+    # Losses ALREADY recorded. Counted separately because `expired` only sees
+    # rows still marked 'scheduled' — once a loss is condemned it drops out of
+    # that count, and /health would otherwise forget the loss the moment it was
+    # recorded, which defeats the point of recording it.
+    unresolvable_recorded: int = 0
 
     @property
     def hours_until_next_data_loss(self) -> float | None:
@@ -320,17 +297,40 @@ def pending_resolution(session: Session, *, now: datetime | None = None) -> Pend
         )
     ).scalar() or 0
 
+    recorded = session.execute(
+        select(func.count()).select_from(Event).where(Event.status == STATUS_UNRESOLVABLE)
+    ).scalar() or 0
+
     return PendingSummary(
         resolvable=len(rows),
         sports=sorted({r.sport for r in rows}),
         oldest_pending_start=min((r.scheduled_start for r in rows), default=None),
         expired=expired,
+        unresolvable_recorded=recorded,
     )
 
 
 def sport_keys_for(sports: list[str]) -> list[str]:
     """Odds API sport_keys covering the given canonical sports."""
     return sorted(k for k, cfg in ODDS_SPORTS.items() if cfg.sport in sports)
+
+
+def backfill_targets(session: Session, *, now: datetime | None = None) -> list[tuple[str, datetime]]:
+    """(sport, kickoff) pairs ESPN should try — everything the primary did not get.
+
+    Includes rows already marked ``unresolvable``: with a source that has years
+    of history, condemnation is no longer permanent, and recovering an outcome we
+    merely failed to COLLECT restores real ground truth to the calibration set.
+    """
+    moment = now or datetime.now(timezone.utc)
+    ceiling = moment - timedelta(minutes=settings.resolution_grace_minutes)
+    rows = session.execute(
+        select(Event.sport, Event.scheduled_start).where(
+            Event.status.in_([STATUS_SCHEDULED, STATUS_UNRESOLVABLE]),
+            Event.scheduled_start <= ceiling,
+        )
+    ).all()
+    return [(r.sport, r.scheduled_start) for r in rows]
 
 
 def mark_unresolvable(session: Session, *, now: datetime | None = None) -> int:
@@ -370,6 +370,64 @@ def mark_unresolvable(session: Session, *, now: datetime | None = None) -> int:
     return len(doomed)
 
 
+def _resolve_from_odds_api(session: Session, keys: list[str], counts: dict) -> int:
+    """Primary pass: exact-ID join against The Odds API. Returns events seen."""
+    undeclared = [k for k in keys if k not in ODDS_SPORTS]
+    if undeclared:
+        raise ValueError(
+            f"Undeclared Odds API sport keys: {undeclared}. Add each to ODDS_SPORTS."
+        )
+    seen = 0
+    with OddsApiClient() as client:
+        for sport_key in keys:
+            payloads = client.get_scores(sport_key)
+            seen += len(payloads)
+            for payload in payloads:
+                extract = extract_score(payload, ODDS_SPORTS[sport_key])
+                if extract is None:
+                    continue
+                counts[resolve_event(session, extract).value] += 1
+        counts["quota_remaining"] = client.quota_remaining
+    return seen
+
+
+def _backfill_from_espn(session: Session, counts: dict) -> int:
+    """Fallback pass. Returns the number of events RECOVERED from a lost state.
+
+    Never raises: ESPN is undocumented and best-effort, and a failure here must
+    not take down a pass the primary already served.
+    """
+    targets = backfill_targets(session)
+    if not targets:
+        return 0
+    try:
+        extracts = fetch_results(targets)
+    except Exception:  # noqa: BLE001
+        logger.warning("ESPN backfill failed; primary results are unaffected", exc_info=True)
+        return 0
+
+    recovered = 0
+    for extract in extracts:
+        was_condemned = session.execute(
+            select(Event.id).where(
+                Event.status == STATUS_UNRESOLVABLE,
+                Event.home_team.in_([extract.home_team, extract.away_team]),
+                Event.away_team.in_([extract.home_team, extract.away_team]),
+            )
+        ).first() is not None
+        outcome = resolve_event(session, extract, source=ESPN_RESOLUTION_SOURCE)
+        counts[outcome.value] = counts.get(outcome.value, 0) + 1
+        if outcome is ResolutionOutcome.RESOLVED and was_condemned:
+            recovered += 1
+            logger.warning(
+                "%s: recovered a previously unresolvable outcome from ESPN — "
+                "%s %d, %s %d. It is graded again.",
+                RECOVERED_MARKER, extract.home_team, extract.home_score,
+                extract.away_team, extract.away_score,
+            )
+    return recovered
+
+
 def run_resolution(sport_keys: list[str] | None = None) -> tuple[IngestResult, dict]:
     """Resolve everything awaiting a result. Returns (result, detail counters).
 
@@ -384,33 +442,19 @@ def run_resolution(sport_keys: list[str] | None = None) -> tuple[IngestResult, d
         pending = pending_resolution(session)
         keys = sport_keys if sport_keys is not None else sport_keys_for(pending.sports)
 
-        if not pending.resolvable or not keys:
-            marked = mark_unresolvable(session)
-            counts["unresolvable_marked"] = marked
-            if marked:
-                session.commit()
+        seen = 0
+        if pending.resolvable and keys:
+            seen = _resolve_from_odds_api(session, keys, counts)
+        else:
             logger.info(
                 "Resolution: nothing awaiting a result; skipped the scores call (0 credits)."
             )
-            return IngestResult(source=SOURCE), counts
 
-        undeclared = [k for k in keys if k not in ODDS_SPORTS]
-        if undeclared:
-            raise ValueError(
-                f"Undeclared Odds API sport keys: {undeclared}. Add each to ODDS_SPORTS."
-            )
-
-        seen = 0
-        with OddsApiClient() as client:
-            for sport_key in keys:
-                payloads = client.get_scores(sport_key)
-                seen += len(payloads)
-                for payload in payloads:
-                    extract = extract_score(payload, ODDS_SPORTS[sport_key])
-                    if extract is None:
-                        continue
-                    counts[resolve_event(session, extract).value] += 1
-            counts["quota_remaining"] = client.quota_remaining
+        # ESPN second, on whatever the primary could not supply — including rows
+        # already condemned, which it can now un-condemn. Free, so breadth costs
+        # nothing; mark_unresolvable runs only AFTER this, so nothing is declared
+        # lost before both sources have tried.
+        counts["recovered"] = _backfill_from_espn(session, counts)
 
         counts["unresolvable_marked"] = mark_unresolvable(session)
         session.commit()

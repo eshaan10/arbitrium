@@ -104,7 +104,7 @@ def resolution_report(summary: PendingSummary, *, now: datetime | None = None) -
     poll_hours = settings.resolution_poll_interval_seconds / 3600
 
     if summary.expired:
-        verdict = "data_lost"  # already unrecoverable
+        verdict = "data_lost"  # past the window and not yet condemned
     elif countdown is not None and countdown <= poll_hours:
         verdict = "at_risk"  # fewer than one poll left to save it
     else:
@@ -114,7 +114,10 @@ def resolution_report(summary: PendingSummary, *, now: datetime | None = None) -
         "pending": summary.resolvable,
         "sports_pending": summary.sports,
         "hours_until_next_data_loss": None if countdown is None else round(countdown, 1),
-        "unresolvable_total": summary.expired,
+        "unresolvable_pending_mark": summary.expired,
+        # Losses already recorded. Kept visible after marking so a permanent
+        # loss does not vanish from health the instant it is written down.
+        "unresolvable_recorded": summary.unresolvable_recorded,
         "window_hours": settings.resolution_unresolvable_after_hours,
         "verdict": verdict,
     }

@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from marketedge.config import settings
@@ -264,28 +264,42 @@ def _claim_existing_event(session, event_id: uuid_mod.UUID, meta: KalshiEventMet
 def _insert_kalshi_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
     """Insert a Kalshi-sourced event, refreshing it if the ticker already exists.
 
-    On conflict we refresh ``scheduled_start``/``updated_at`` only — we do NOT
-    overwrite home/away or home_away_source, so a Phase-2 authoritative
-    assignment is never clobbered by a later provisional pass.
+    On conflict we do NOT overwrite home/away or home_away_source, so a Phase-2
+    authoritative assignment is never clobbered by a later provisional pass.
+
+    ``scheduled_start`` gets the SAME protection, which it previously lacked.
+    Kalshi's start time is parsed from the event ticker and is only a DATE — it
+    lands on midnight UTC, while the real kickoff is an evening US time up to ~24h
+    later. The Odds API supplies the true ``commence_time`` during enrichment, but
+    this upsert used to overwrite it with the midnight placeholder on every poll
+    (i.e. every 5 minutes), so the exact kickoff never survived.
+
+    That was not cosmetic: the outcome-resolution window is measured from
+    ``scheduled_start``, so a start time up to a day early condemned events as
+    unresolvable up to a day before they actually aged out.
     """
-    stmt = (
-        pg_insert(Event)
-        .values(
-            sport=meta.sport,
-            league=meta.league,
-            home_team=meta.home_team,
-            away_team=meta.away_team,
-            scheduled_start=meta.scheduled_start,
-            status="scheduled",
-            kalshi_event_ticker=meta.kalshi_event_ticker,
-            home_away_source=meta.home_away_source,
-        )
-        .on_conflict_do_update(
-            index_elements=["kalshi_event_ticker"],
-            set_={"scheduled_start": meta.scheduled_start, "updated_at": func.now()},
-        )
-        .returning(Event.id)
+    stmt = pg_insert(Event).values(
+        sport=meta.sport,
+        league=meta.league,
+        home_team=meta.home_team,
+        away_team=meta.away_team,
+        scheduled_start=meta.scheduled_start,
+        status="scheduled",
+        kalshi_event_ticker=meta.kalshi_event_ticker,
+        home_away_source=meta.home_away_source,
     )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["kalshi_event_ticker"],
+        set_={
+            # Keep the authoritative kickoff once The Odds API has set one;
+            # otherwise refresh from the ticker (which may legitimately move).
+            "scheduled_start": case(
+                (Event.home_away_source == "odds_api", Event.scheduled_start),
+                else_=stmt.excluded.scheduled_start,
+            ),
+            "updated_at": func.now(),
+        },
+    ).returning(Event.id)
     return session.execute(stmt).scalar_one()
 
 
