@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from marketedge.ingestion.odds_api import MAX_SCORES_DAYS_FROM, ODDS_SPORTS, OddsApiClient
-from marketedge.ingestion.resolution import (
+from arbitrium.ingestion.odds_api import MAX_SCORES_DAYS_FROM, ODDS_SPORTS, OddsApiClient
+from arbitrium.ingestion.resolution import (
     coerce_score,
     decide_winner,
     extract_score,

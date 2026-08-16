@@ -1,22 +1,21 @@
-# Phase 1 services: postgres, api (health-only stub), scheduler (Kalshi ingest).
-# The frontend service is added in Phase 5.
+# Services: postgres, api, scheduler (Kalshi ingest), frontend (Next.js).
 #
 # Build context is the repo root so the image contains both ./backend and
 # ./db/migrations. The whole repo is bind-mounted at /app for live reload; the
-# marketedge package is importable via PYTHONPATH=/app/backend.
+# arbitrium package is importable via PYTHONPATH=/app/backend.
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-marketedge}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-marketedge}
-      POSTGRES_DB: ${POSTGRES_DB:-marketedge}
+      POSTGRES_USER: ${POSTGRES_USER:-arbitrium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arbitrium}
+      POSTGRES_DB: ${POSTGRES_DB:-arbitrium}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marketedge} -d ${POSTGRES_DB:-marketedge}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arbitrium} -d ${POSTGRES_DB:-arbitrium}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -27,9 +26,9 @@ services:
       dockerfile: backend/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://marketedge:marketedge@postgres:5432/marketedge}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://arbitrium:arbitrium@postgres:5432/arbitrium}
     working_dir: /app/backend
-    command: uvicorn marketedge.api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn arbitrium.api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     volumes:
@@ -44,7 +43,7 @@ services:
       dockerfile: backend/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://marketedge:marketedge@postgres:5432/marketedge}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://arbitrium:arbitrium@postgres:5432/arbitrium}
     working_dir: /app/backend
     command: python -m scheduler.flows
     volumes:
@@ -52,6 +51,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # The browser never talks to the API directly — the Next server proxies it at
+  # /api/be, so BACKEND_URL is an internal service name and no CORS policy is
+  # needed on FastAPI. node_modules is masked with an anonymous volume so the
+  # container's install is not shadowed by a host one built for another arch.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://api:8000}
+    working_dir: /app
+    command: pnpm dev --port 3000 --hostname 0.0.0.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
 
 volumes:
   pgdata:

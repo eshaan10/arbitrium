@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from marketedge.calibration import clv as clv_mod
-from marketedge.calibration.grading import (
+from arbitrium.calibration import clv as clv_mod
+from arbitrium.calibration.grading import (
     ORIGIN_LIVE,
     ORIGIN_RECONSTRUCTED,
     backfill_reconstructions,
@@ -22,8 +22,8 @@ from marketedge.calibration.grading import (
     record_prediction,
     source_reliability_pairs,
 )
-from marketedge.db.models import CalibrationHistory, Event, OddsSnapshot
-from marketedge.ingestion.snapshots import insert_snapshots
+from arbitrium.db.models import CalibrationHistory, Event, OddsSnapshot
+from arbitrium.ingestion.snapshots import insert_snapshots
 
 UTC = timezone.utc
 
@@ -144,7 +144,7 @@ def test_reconstruction_never_sees_a_future_price(db_session):
     NOTE the consensus price moves between the two snapshots. It has to: the
     dedup trigger keys on implied_probability alone, so an unchanged median with
     a CHANGED book count is suppressed and the new n_books never reaches the
-    table. See the known-limitation note in marketedge/calibration/grading.py.
+    table. See the known-limitation note in arbitrium/calibration/grading.py.
     """
     ev = _game(db_session, days_ago=2, winner="Kansas City Chiefs", status="final")
     # Early: a thin consensus that must NOT produce a call.

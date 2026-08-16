@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from marketedge.ingestion.normalize import (
+from arbitrium.ingestion.normalize import (
     NormalizedSnapshot,
     american_to_probability,
     decimal_to_probability,
@@ -195,7 +195,7 @@ def test_nodet_market_extraction_precedence():
     # carries liquidity_dollars="0.0000" (thin resting book) alongside real
     # volume. Confirms: price from *_dollars mid; liquidity_score = resting depth
     # (0.0, NOT volume); volume preserved in order_book_depth.
-    from marketedge.ingestion.normalize import (
+    from arbitrium.ingestion.normalize import (
         _kalshi_yes_probability,
         _market_liquidity,
         _order_book_depth,

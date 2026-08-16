@@ -9,19 +9,19 @@ from __future__ import annotations
 
 import random
 
-from marketedge.calibration.model import (
+from arbitrium.calibration.model import (
     bootstrap_interval,
     fit,
     pool_adjacent_violators,
     reliability_bins,
 )
-from marketedge.calibration.sample import (
+from arbitrium.calibration.sample import (
     CalibrationStatus,
     assess,
     brier_score,
     wilson_interval,
 )
-from marketedge.config import settings
+from arbitrium.config import settings
 
 MIN_REPORT = settings.calibration_min_report_samples
 MIN_FIT = settings.calibration_min_fit_samples

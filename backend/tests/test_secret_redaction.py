@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from marketedge.logging_config import RedactingFilter, configure_logging, redact
+from arbitrium.logging_config import RedactingFilter, configure_logging, redact
 
 FAKE_KEY = "abcdef0123456789abcdef0123456789"
 URL = f"https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey={FAKE_KEY}&regions=us"

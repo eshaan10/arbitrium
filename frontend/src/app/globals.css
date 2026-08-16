@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Arbitrium design system
+   ----------------------------------------------------------------------------
+   Seeded from the crimson/dark palette proven in the preview scaffold and
+   extended here into a full system for the screens that had no reference.
+
+   The one rule that governs colour in this app: CRIMSON MEANS SIGNAL, not
+   danger. A red-accented product that also uses red for "bad" makes every
+   number ambiguous, so value/gain is crimson and its absence is a cool,
+   desaturated slate. Amber is reserved for "we are not sure", which is a
+   different statement from "this is negative".
+   ========================================================================= */
+
+:root {
+  /* --- surfaces: five steps, so panels can stack without borders alone --- */
+  --bg: #0a0b0d;
+  --surface: #121418;
+  --surface-raised: #171a1f;
+  --surface-sunken: #0d0f12;
+  --border: #23272e;
+  --border-lit: #2f343d;
+
+  /* --- text: four steps. Nothing below --muted is used for real content. --- */
+  --text: #eceef1;
+  --text-dim: #a2a9b4;
+  --muted: #6d747f;
+  --faint: #4b515a;
+
+  /* --- crimson signal ramp --- */
+  --signal-100: #ffd9e0;
+  --signal-300: #f2708a;
+  --signal-500: #e33d5c; /* primary action / "buy" */
+  --signal-600: #c9455f; /* signal text on dark */
+  --signal-800: #8e3346; /* dimmed series, secondary strokes */
+  --signal-950: #2a1219; /* tinted fills */
+
+  /* Arbitrage is a different product, so it gets a different, hotter red and a
+     glow it does not share with anything else. */
+  --arb: #ff2d55;
+  --arb-glow: rgb(255 45 85 / 0.16);
+
+  /* --- non-signal semantics --- */
+  --gain: #e8556f; /* money won — crimson family, per the rule above */
+  --loss: #7c8794; /* money lost — deliberately NOT red */
+  --neg: #7c8794; /* a negative metric */
+  --warn: #c9922b; /* uncertainty, thin data, provisional */
+
+  /* Status is a RESERVED channel, never the signal accent. A crimson dot beside
+     the word "fresh" reads as an alert no matter what the palette intends, so
+     system health gets its own green — used only for status, never for a data
+     series or a money figure. 6.69:1 on --bg. */
+  --status-ok: #4ea77b;
+  --neutral: #5b6472;
+
+  /* --- data-viz series (event detail, performance) ---
+     Kalshi and consensus must stay distinguishable for the ~8% of users with
+     red-green deficiency, so the second series is separated by LIGHTNESS and
+     hue-angle, not by a red/green pairing.
+
+     Both steps are validated against the chart surface (--surface-sunken):
+     inside the dark-mode OKLCH lightness band 0.48–0.67, chroma ≥ 0.10,
+     protan/deutan ΔE 15.0 and normal-vision ΔE 26.7, contrast ≥ 3:1. Do not
+     hand-tweak these without re-running the palette validator. */
+  --series-kalshi: #f0526f;
+  --series-consensus: #5b8fd0;
+  --series-grid: #1c2027;
+  --series-reference: #4b515a; /* perfect-calibration diagonal, ideal lines */
+
+  /* --- shape & depth --- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-panel: 0 24px 64px -12px rgb(0 0 0 / 0.7);
+
+  /* --- motion: short, and fully removable --- */
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* --- confidence fade ---
+     The floor is a contrast requirement, not a taste call: --text-dim on --bg
+     drops below 4.5:1 past this point, and an unreadable low-confidence row is
+     a hidden one. The fade is always paired with an explicit label. */
+  --fade-floor: 0.62;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-border: var(--border);
+  --color-border-lit: var(--border-lit);
+
+  --color-text: var(--text);
+  --color-dim: var(--text-dim);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+
+  --color-signal: var(--signal-500);
+  --color-signal-600: var(--signal-600);
+  --color-signal-800: var(--signal-800);
+  --color-signal-950: var(--signal-950);
+  --color-arb: var(--arb);
+
+  --color-gain: var(--gain);
+  --color-loss: var(--loss);
+  --color-neg: var(--neg);
+  --color-warn: var(--warn);
+  --color-status-ok: var(--status-ok);
+  --color-neutral: var(--neutral);
+
+  --color-kalshi: var(--series-kalshi);
+  --color-consensus: var(--series-consensus);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  /* --- type scale ---
+     Five steps, and only five. The card previously used eleven ad-hoc sizes,
+     which is precisely why nothing on it read as more important than anything
+     else: with eleven sizes, size stops encoding rank. Every ratio below is a
+     clear step, not a nudge, so a glance can order them.
+
+       display  — the price. The one hero per card.
+       lede     — the page's opening statement.
+       headline — a curated rail slot.
+       title   — team names, section headings.
+       body    — sentences meant to be read.
+       meta    — supporting facts and labels.
+       micro   — provenance, timestamps, footnotes.
+
+     If something needs a size between two of these, it needs a different
+     weight or colour instead. */
+  --text-lede: 19px;
+  --text-lede--line-height: 1.25;
+  --text-lede--letter-spacing: -0.02em;
+  --text-headline: 17px;
+  --text-headline--line-height: 1.3;
+  --text-headline--letter-spacing: -0.01em;
+  --text-display: 30px;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 15px;
+  --text-title--line-height: 1.3;
+  --text-body: 13px;
+  --text-body--line-height: 1.6;
+  --text-meta: 11.5px;
+  --text-meta--line-height: 1.45;
+  --text-micro: 10px;
+  --text-micro--line-height: 1.4;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  /* Prices, probabilities and depth are compared down a column constantly, so
+     every number in this app is tabular. */
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/* This product is dark-only by design — the palette carries meaning that a
+   light inversion would not preserve, so it is declared once, not toggled. */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04";
+}
+
+/* Every figure in the UI goes through this, so columns of prices line up. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
+
+/* Focus is visible everywhere; the app is dense and keyboard use is expected. */
+:focus-visible {
+  outline: 2px solid var(--signal-500);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Fired only when a poll observed a genuine price move (see usePriceDeltas).
+   A brief border+wash, not a colour change to the numbers themselves — the
+   figures must stay readable while it plays. */
+@keyframes price-flash {
+  0% {
+    border-color: var(--signal-500);
+    background-color: var(--signal-950);
+  }
+  100% {
+    border-color: var(--border);
+    background-color: var(--surface);
+  }
+}
+
+.animate-price-flash {
+  animation: price-flash 1200ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: var(--signal-800);
+  color: var(--text);
+}
+
+/* An actionable card earns a faint warm wash from its top edge — enough to
+   separate it from the "nothing to do here" majority at a glance, without
+   another border or badge competing inside the card. */
+.card-actionable {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--signal-500) 5%, transparent),
+    transparent 96px
+  );
+}
+
+/* A pinned game. The star states it, this makes it legible in a scan without
+   reading the star — and it is a structural edge rather than another badge, so
+   it cannot be mistaken for the actionable wash above. */
+.card-pinned {
+  box-shadow: inset 2px 0 0 0 var(--signal-500);
+}
+
+/* Section rule: a label sitting on a hairline, used for list group headers so
+   they separate without weighing as much as a heading. */
+.rule-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+details.why > summary {
+  cursor: pointer;
+  list-style: none;
+}
+details.why > summary::-webkit-details-marker {
+  display: none;
+}
+details.why[open] > summary .why-chevron {
+  transform: rotate(90deg);
+}
+.why-chevron {
+  transition: transform var(--t-fast) var(--ease);
+}

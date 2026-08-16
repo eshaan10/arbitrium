@@ -11,14 +11,14 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from marketedge.db.models import Event, OddsSnapshot
-from marketedge.ingestion.kalshi import (
+from arbitrium.db.models import Event, OddsSnapshot
+from arbitrium.ingestion.kalshi import (
     SERIES_CONFIG,
     KalshiEventMetadata,
     ingest_event,
     upsert_event,
 )
-from marketedge.ingestion.odds_api import ODDS_SPORTS, ingest_odds_event
+from arbitrium.ingestion.odds_api import ODDS_SPORTS, ingest_odds_event
 
 UTC = timezone.utc
 # Synthetic '99' year in every ticker: the fixture rolls back, but it still READS

@@ -1,5 +1,5 @@
 [project]
-name = "marketedge"
+name = "arbitrium"
 version = "0.1.0"
 description = "Sports prediction-market divergence and calibration engine"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["marketedge"]
+packages = ["arbitrium"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

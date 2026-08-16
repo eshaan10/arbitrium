@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from marketedge.ingestion.kalshi import (
+from arbitrium.ingestion.kalshi import (
     SERIES_CONFIG,
     KalshiClient,
     _parse_event_ticker,

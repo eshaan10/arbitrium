@@ -1,167 +1,228 @@
-# MarketEdge
+# Arbitrium
 
-> An independent auditor for two sports-pricing systems that never check each other's work.
+Two systems price the same sports events and never check each other's work:
+**Kalshi**, a CFTC-regulated prediction market where the price is what traders
+will pay, and **sportsbooks**, whose odds are set by a risk desk and carry a
+built-in margin. Arbitrium measures where they disagree, reports how much of
+that disagreement is actually capturable after costs, and grades its own
+accuracy honestly enough to tell you when it doesn't know.
 
-MarketEdge sits on top of **Kalshi** (a CFTC-regulated prediction market, where price = collective
-trader positioning) and **traditional sportsbooks** (fixed odds set by a bookmaker's risk team). It
-detects meaningful divergences between them, ranks bet/combo opportunities by calibrated expected
-value and risk tier, and — critically — grades its own historical accuracy so every recommendation
-ships with an honest confidence number.
+The interesting problem was never picking winners. It was building something
+that refuses to overclaim: that reports a number only when the sample supports
+it, keeps a backtest visibly separate from a live record, and says "I can't
+score this" rather than filling the space.
 
-**This is not a Kalshi clone and not a "pick winners" betting bot.** Kalshi is a market; a sportsbook
-is a bookmaker. Neither one tells you whether its own price is trustworthy, whether it disagrees with
-anyone else's price, or whether trusting it has historically paid off. MarketEdge is the analysis
-layer that requires having both sources in one place to build, and that neither platform has an
-incentive to build for itself. Calibration and honesty about uncertainty are first-class features,
-not afterthoughts.
-
-## Design principles
-
-These are baked into the code, not just the UI copy:
-
-1. **Never hide uncertainty.** Low-confidence signals are shown with clear badges, not filtered out silently.
-2. **"Safe" and "max payout" are different axes** and are never claimed to be simultaneously optimal. The optimizer exposes an explicit risk-tier choice rather than pretending one combo is both.
-3. **Every probability is traceable to a calibration number,** not just a raw model output.
-4. **Independence assumptions are stated explicitly** wherever joint probability is computed.
-5. **Append-only history everywhere.** This is what makes CLV and calibration possible; no migration or refactor may introduce overwrites to snapshot tables.
-6. **This system is an independent auditor, not a market-participant clone.** The entire value is in comparing Kalshi against a second, independent source.
+---
 
 ## Status
 
-**Phase 2 — Sportsbook ingestion and divergence scoring: complete**, verified end to end against
-live NFL data. Both sources ingest on independent schedules and merge into one event row regardless
-of poll order; `/divergences` reports four independent axes with nothing blended into a single
-score. See [what shipped](#phase-2-what-shipped) below, including the gaps left open on purpose.
-
-### Build order
-
 | Phase | Scope | State |
-|-------|-------|-------|
-| 1 | Foundation: schema, Kalshi ingestion, normalization tests | **done** |
-| 2 | Sportsbook ingestion, divergence scoring, `/divergences` | **done** |
-| 3 | Outcome resolution, calibration + grading, `/performance` | **active** — resolution + job history shipped; calibration model next |
-| 4 | Combo optimizer (3 risk tiers), `/combos` | planned |
-| 5 | Frontend (dashboard, game detail, combo builder, performance) | planned |
-| 6 | CI/CD, deploy, README polish | planned |
+|---|---|---|
+| 1 | Kalshi ingestion, normalizer, append-only storage | **Built** |
+| 2 | Odds API ingestion, matching, divergence + arbitrage engine | **Built** |
+| 3 | Outcome resolution, calibration, sample gating, `/performance` | **Built**, reporting withheld until the sample floor is met |
+| 4 | Combo optimizer | **Not built** — see below |
+| 5 | Next.js frontend | **Built** |
 
-## Architecture (Phase 2)
+267 backend tests, 142 frontend tests. Every claim below is either covered by a
+test or was verified against the live database.
+
+---
+
+## What it does
+
+**Ingestion.** Two pollers on independent schedules. Kalshi runs flat at 5
+minutes (a live order book moves constantly). The Odds API is adaptive —
+hourly inside 24h of kickoff, four times a day inside a week, daily beyond that
+— because the plan allows ~500 credits/month and a flat 15-minute interval
+burns the entire budget in five days.
+
+**Storage.** `odds_snapshots` is append-only. A Postgres trigger suppresses a
+write when the price for `(event_id, source, outcome)` is unchanged, so the
+table records genuine price *changes* rather than poll attempts. That is what
+makes closing-line value measurable at all, and it is why a flat line in the UI
+means the price genuinely held.
+
+**Divergence.** For each scheduled event, the engine strips the bookmaker
+margin, takes the median across every book that posted a line, and compares it
+to Kalshi. It reports two numbers that are never blended:
+
+- **divergence** — how far apart the two beliefs are.
+- **net edge after spread** — what survives crossing Kalshi's executable
+  bid/ask. Roughly half of real divergences are smaller than the spread needed
+  to capture them, so a large divergence with a negative net edge is a real
+  measurement worth nothing.
+
+Events that cannot be scored are returned **with a status and a reason**, never
+filtered out — a game with one bookmaker is a fact about our coverage, and
+hiding it would let a caller assume the game doesn't exist.
+
+**Arbitrage** is detected off raw per-book prices and kept in its own fenced
+panel. It is the only place in the product allowed to use guaranteed-payout
+language, because it is the only trade whose payout doesn't depend on who wins.
+Every arbitrage figure is gross: before fees, assuming both legs fill.
+
+**Calibration.** `/performance` grades three separate bodies of evidence and
+never merges them: source reliability (is consensus actually the better
+estimate?), track record split into `live` vs `reconstructed`, and closing-line
+value. Below the sample floor a rate is **withheld entirely** rather than shown
+with a caveat — a number that exists gets quoted regardless of the words next
+to it.
+
+---
+
+## Bugs worth recording
+
+These are in the history and in the tests. They are the reason several
+now-boring parts of the codebase look the way they do.
+
+**The silent week-long outage.** Snapshot writes went through the ORM, and the
+dedup trigger returns `NULL` to suppress a row. SQLAlchemy interpreted that as
+a failed flush; ingestion broke and *looked completely healthy* for about a
+week, because the failure had no output. Fixed by moving to Core `executemany`
+and, more importantly, by adding three independent layers of ingest visibility:
+in-process counters, an `ingest_runs` job table, and a `/health` freshness
+check derived from the append-only table itself, which keeps reporting a
+growing age even through a crash loop.
+
+**The same mistake, a second time.** Months later `record_prediction` reported
+zero writes while actually writing 21 rows: it tested `rowcount`, which psycopg
+returns as `-1` for `ON CONFLICT` inserts whether or not a row landed. Same
+attempted-versus-written confusion, same two consumers. Conditional writes are
+now confirmed with `RETURNING` or a count delta, never a rowcount.
+
+**Kalshi's two price scales.** The live API returns `yes_bid_dollars` as a
+*string* already on the 0–1 scale (`"0.2400"`), while the legacy `yes_bid` is an
+integer in cents (`24`). Reading the wrong one is a silent 100× error that still
+produces a plausible-looking probability. The parser prefers the dollar fields
+and falls back per-field, with the units documented at the call site.
+
+**The home/away join.** Snapshots were originally joined on `outcome`
+(`home`/`away`). But home/away is Kalshi's *provisional guess* until the Odds
+API confirms it, and re-labelling an event at the event level would silently
+re-point every historical row. The join anchor moved to canonical `team`, which
+never changes for a written row; the UI still surfaces `home_away_source` so a
+reader knows which they're looking at.
+
+**A duplicate-counting index.** `calibration_history` was unique on
+`(event_id, subject_team, origin)` — but a recommendation's *side* moves as
+prices drift, so recording the same game at two moments wrote two rows for one
+bet. The sample gate counts rows, so that inflates `n` and shrinks every
+confidence interval: the "two sides of a two-way market are one bet" error
+arriving through the back door. Now one row per `(event_id, origin)`.
+
+**A monitor that cried wolf.** `/health` judged the Odds API against the flat
+15-minute setting while the poller ran on the adaptive schedule — a threshold
+wrong by up to 96×, reporting a healthy poller as stale for most of every week.
+This is the original outage inverted: there the monitor was silent while
+ingestion was broken; here it alarmed while ingestion was fine. Both end with
+nobody trusting the signal. Fixed to read the interval actually in force, with
+a test that fails if anyone reverts it.
+
+---
+
+## Architecture
 
 ```
-Kalshi public API ──> ingestion/kalshi.py ────┐
-                                              ├─> matching.py ──> events (one row per game,
-The Odds API ──────> ingestion/odds_api.py ───┘                    dual-keyed)
-                              │                                        │
-                              └──> normalize.py ──> odds_snapshots ────┤
-                                   (vig stripped)   (append-only)      │
-                                                                       v
-                       scheduler/flows.py (Prefect)          divergence/engine.py ──> /divergences
+Kalshi API ─┐                          ┌─ /divergences   scored events + reasons
+            ├─ pollers ─→ Postgres ─→ ─┼─ /events/{id}/history
+Odds API ───┘  (adaptive) (append-only)├─ /events/lookup  resolved games by id
+ESPN (resolution fallback)             ├─ /activity       recent real price moves
+                                       ├─ /performance    gated self-grading
+                                       └─ /health         per-source freshness
+                                                │
+                                          Next.js (SSR + polling)
 ```
 
-- **Ingestion:** Python + httpx, scheduled via Prefect.
-- **Storage:** PostgreSQL. `odds_snapshots` is append-only; a `BEFORE INSERT` trigger suppresses
-  rows whose price is unchanged since the last observation for the same `(event, source, outcome)`.
-  Snapshots are written via Core executemany, never the ORM unit of work — an `INSERT ... RETURNING`
-  miscounts its rows when the trigger suppresses one and aborts the whole flush.
-- **Matching:** both ingestion paths run the same matcher before inserting, so whichever source polls
-  first creates the event and the other merges into it. Poll order is not load-bearing.
-- **Divergence:** Kalshi vs sportsbook consensus, joined on `team` (never home/away, which is
-  provisional for Kalshi). Events that can't be scored — one source, or a consensus over fewer than
-  `MIN_CONSENSUS_BOOKS` bookmakers — are returned with an explicit status and no number, rather than
-  filtered out. Two independent axes are reported and never collapsed:
-  `divergence` (vig-stripped mids — how far apart the two sources' *beliefs* are, and the input
-  Phase 3 calibration needs) and `net_edge_after_spread` (consensus vs Kalshi's *raw executable*
-  bid/ask — what is actually capturable). On live NFL data these rank differently, and roughly half
-  of all real divergences are smaller than the spread required to capture them.
-- **Ingest health:** every pass reports rows *written*, not attempted — the dedup trigger makes those
-  wildly different numbers. Consecutive failures escalate with an `INGEST_UNHEALTHY` log marker;
-  `/health` independently reports per-source write recency straight from the append-only table, so a
-  dead poller still surfaces after a restart clears in-process counters.
-- **Outcome resolution:** results come from The Odds API scores endpoint, joined on the odds event id
-  we already store (and falling back to the shared matcher for Kalshi-only events). A result is
-  stored as `winner_team` — a canonical team name — never as `'home'`/`'away'`; `winner_side` is a
-  Postgres *generated* column, so a later home/away correction recomputes it in the same statement
-  and the two can never drift. Resolution is the one **perishable** job here: the endpoint reaches
-  back only 3 days, so an outcome missed inside that window is gone permanently, and `/health`
-  reports `hours_until_next_data_loss` rather than waiting to report the loss.
-- **Adaptive polling:** the Odds API bills per request returning events against a 500/month budget.
-  A flat 15-minute interval cost ~96 credits/day and exhausted the month in five days. Polling is now
-  paced by time-to-kickoff (hourly inside 24h, 6-hourly inside a week, daily beyond), because CLV is
-  measured against the *closing* line — so credits go where prices actually move. A quota guard stops
-  paid calls above a reserve so exhaustion cannot masquerade as a quiet market.
-- **Job history:** `ingest_runs` records every pass in its own committed transaction, so a *failed*
-  pass still leaves evidence. Data freshness alone could never separate "poller dead" from "market
-  genuinely quiet"; a run row can.
-- **API:** FastAPI: `/health`, `/divergences`.
+**Backend** — Python 3.11, FastAPI, SQLAlchemy 2, Postgres 16, Alembic, httpx.
+The scheduler is a single long-running process running four jobs on independent
+intervals (Kalshi, Odds API, calibration, resolution).
 
-## Phase 2: what shipped
+**Frontend** — Next.js 16 (App Router), React 19, TypeScript, Tailwind v4,
+TanStack Query, Recharts. The browser never calls FastAPI directly: server
+components fetch it, and the client polls through a Next route handler that
+forwards an allowlist of GET endpoints. Personalisation is localStorage only —
+no accounts, nothing leaves the browser.
 
-**Ingestion.** The Odds API v4 h2h odds for NFL/NBA, verified against the live payload before being
-trusted. Per-book American prices are vig-stripped individually, then combined by **median** (not
-mean) so one mispriced book cannot drag the consensus. Raw per-book odds are preserved in
-`order_book_depth` — which is what makes arbitrage detectable at all.
+See [`frontend/README.md`](frontend/README.md) for the UI's own design rules,
+and [`ROADMAP.md`](ROADMAP.md) for what each phase actually delivered.
 
-**Matching.** One game becomes one `events` row no matter which source sees it first. Matching is on
-`(sport, unordered team pair)` disambiguated by start-time proximity, never by date equality: the two
-sources legitimately disagree on the calendar date (Kalshi carries the originally-scheduled date,
-The Odds API the current kickoff, and night games cross UTC midnight). Both ingestion paths run the
-same matcher, so poll order is not load-bearing. Ambiguous matches (doubleheaders) are never guessed.
+---
 
-**Divergence scoring — four independent axes, never blended:**
-
-| Axis | Question it answers | Priced off |
-|------|--------------------|------------|
-| `divergence` | How far apart are the two sources' *beliefs*? | vig-stripped mids |
-| `net_edge_after_spread` | What survives crossing Kalshi's book? | raw executable bid/ask |
-| `expected_value_at_depth` | Is the trade worth *money*, not just a good rate? | edge × resting size |
-| `is_arbitrage` | Is there a risk-free position needing no belief at all? | raw odds, best book per outcome |
-
-These genuinely disagree, which is the point. On live data the largest divergence ranked 5th by net
-edge, and the leg with the *lower* percentage edge was worth ~4× more in dollars. Arbitrage is kept
-strictly separate from net edge: a net edge pays only if the sportsbook consensus is the better
-estimate, while an arbitrage pays regardless of outcome. `gross_profit` models **no fees and no
-execution risk** and is an upper bound, not a return.
-
-**Monitoring.** Every ingest pass reports rows *written*, not attempted. Consecutive failures escalate
-with an `INGEST_UNHEALTHY` log marker; `/health` independently reports per-source write recency from
-the append-only table, so a dead poller still surfaces after a restart clears in-process counters.
-
-### Deferred on purpose
-
-* **Reciprocal merge is unit-tested, not production-exercised.** All 16 live matches happened to
-  agree with Kalshi's provisional home/away, so the authoritative-flip path has not yet run on real
-  data. Awaiting a real doubleheader / postponement to exercise it.
-* **`ingest_runs` table deferred to Phase 3**, where calibration wants job history anyway. Until
-  then, "poller dead" vs "market genuinely quiet" is a heuristic rather than an exact answer.
-* **NFL preseason has no sportsbook coverage.** The Odds API's `americanfootball_nfl` key is
-  regular-season only, so Kalshi preseason games stay `single_source_no_divergence` by design rather
-  than being silently omitted. Adding `americanfootball_nfl_preseason` would close it, at quota cost.
-* **`liquidity_score` is a constant 0.** Kalshi's `liquidity_dollars` reports 0 on every observed
-  market. The column keeps its original meaning rather than being redefined; real depth is a separate
-  derived `resting_depth` from the bid/ask sizes.
-* **No fee model.** Small gross arbitrages are very likely negative after Kalshi's trading fees.
-  Modelling them needs real per-venue fee data; a wrong fee model would be worse than an honest gross
-  figure with a stated caveat.
-
-## Running locally
+## Setup
 
 ```bash
-cp .env.example .env
-docker compose up --build          # starts postgres, api, scheduler
-
-# Apply migrations (run from the repo root inside the container, where the
-# db/migrations tree and DATABASE_URL are both available):
-docker compose run --rm --workdir /app api \
-    alembic -c db/migrations/alembic.ini upgrade head
-
-# Run the normalization tests (default workdir is /app/backend):
-docker compose run --rm api pytest
+git clone https://github.com/eshaan10/Arbitrium.git
+cd Arbitrium
+cp .env.example .env          # add KALSHI_* and ODDS_API_KEY
+docker compose up
 ```
 
-## Out of scope for v1 (future work)
+- API — http://localhost:8000 (`/docs` for the schema)
+- Frontend — http://localhost:3000
+- Postgres — localhost:5432
 
-- **Player props / game-specific stats.** These need a line + direction (not a binary probability),
-  player-ID matching across sources, and materially harder correlation handling. v1 is **team
-  moneylines only.** If extended later, add nullable `player_id`/`line` columns to `odds_snapshots`
-  rather than a new table.
-- **Live / in-play websocket tracking.** v1 is pre-game, polling-based only.
-- **Broad multi-sport support.** Start narrow (1–2 sports), expand once the pipeline is proven.
+Migrations run against `db/migrations` (Alembic). Tests:
+
+```bash
+docker compose exec api python -m pytest      # backend
+cd frontend && pnpm test                      # frontend
+```
+
+The backend tests need a reachable database and run inside the `api` container.
+`db_session` wraps each test in a transaction that is always rolled back, but it
+does **not** hide existing rows — tests assert against their own fixtures, not
+global counts.
+
+---
+
+## Not built: Phase 4, the combo optimizer
+
+Multi-leg positions ranked within an explicit risk tier. The UI shell exists
+(`/combos`) with the card shape and the tier selector, drawn with empty slots
+and labelled "not live yet" — deliberately not a mock combo with plausible
+teams and prices, which on a betting page is the one thing this product
+shouldn't ship.
+
+It is not built because the honest version depends on Phase 3 producing
+calibrated per-leg probabilities, and there aren't enough resolved games yet to
+calibrate against. Multiplying uncalibrated probabilities through three legs
+compounds the error, and a combo card is exactly where an overconfident number
+does the most damage. This is scope discipline, not abandonment: the endpoint
+shape and the honesty rules it has to satisfy are written down in the roadmap.
+
+---
+
+## Future work: calibration-driven adaptive weighting
+
+*Not started. Recorded here so the idea is on paper with its preconditions
+attached.*
+
+Today the consensus is an unweighted median across every book that posted a
+line. Every book counts the same. It is plausible that some books are
+systematically better predictors than others, and that weighting the consensus
+by each book's measured historical accuracy would produce a sharper estimate
+than the median.
+
+It is deliberately gated on having enough resolved-game history to fit those
+weights without overfitting. Per-book weights are a lot of free parameters
+estimated from a small sample, and with a few dozen games the fit would mostly
+be describing noise — producing a consensus that looks more precise while being
+less accurate, and worse, one whose confidence intervals would understate the
+error. The same sample-gate discipline that governs `/performance` applies:
+this stays unbuilt until there is enough resolved history to test whether a
+weighted consensus actually beats the median out of sample, and it ships only
+if it does.
+
+---
+
+## What this project will not do
+
+- Quote a win rate before enough games have resolved.
+- Present a backtest as a live record.
+- Hide an event it cannot score.
+- Blend a divergence and a capturable edge into one number.
+- Describe a directional bet with a single expected-value figure.
+
+Nothing here is financial advice, and every figure is gross of fees and
+execution risk. Not affiliated with Kalshi or any sportsbook.

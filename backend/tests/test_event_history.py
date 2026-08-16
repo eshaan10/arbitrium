@@ -13,8 +13,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import HTTPException
 
-from marketedge.api.main import event_history
-from marketedge.db.models import Event, OddsSnapshot
+from arbitrium.api.main import event_history
+from arbitrium.db.models import Event, OddsSnapshot
 
 UTC = timezone.utc
 

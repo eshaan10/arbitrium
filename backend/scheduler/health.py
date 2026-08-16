@@ -17,7 +17,7 @@ grepped or alerted on without parsing prose.
 
 This state lives in the process and resets on restart — which is exactly why it
 is not the only layer. ``/health`` derives staleness from the database instead
-(see marketedge.api.main), so a crash-looping poller still surfaces.
+(see arbitrium.api.main), so a crash-looping poller still surfaces.
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from marketedge.config import settings
-from marketedge.ingestion.result import IngestResult
-from marketedge.logging_config import UNHEALTHY_MARKER
+from arbitrium.config import settings
+from arbitrium.ingestion.result import IngestResult
+from arbitrium.logging_config import UNHEALTHY_MARKER
 
 logger = logging.getLogger(__name__)
 
-# Re-exported from marketedge.logging_config so both layers share one marker
-# without scheduler.* becoming a dependency of marketedge.*.
+# Re-exported from arbitrium.logging_config so both layers share one marker
+# without scheduler.* becoming a dependency of arbitrium.*.
 __all__ = ["IngestHealth", "UNHEALTHY_MARKER"]
 
 

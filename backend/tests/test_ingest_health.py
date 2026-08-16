@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from marketedge.ingestion.result import IngestResult
+from arbitrium.ingestion.result import IngestResult
 from scheduler.health import UNHEALTHY_MARKER, IngestHealth
 
 UTC = timezone.utc

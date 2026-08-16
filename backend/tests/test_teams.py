@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marketedge.reference.teams import resolve_by_name, resolve_team, team_by_uuid
+from arbitrium.reference.teams import resolve_by_name, resolve_team, team_by_uuid
 
 
 def test_resolve_by_code_and_uuid_validation():

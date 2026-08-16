@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from marketedge.db.models import Event
-from marketedge.ingestion.espn import (
+from arbitrium.db.models import Event
+from arbitrium.ingestion.espn import (
     ESPN_SPORTS,
     EspnClient,
     extract_espn_event,
     fetch_results,
     sweep_dates,
 )
-from marketedge.ingestion.outcomes import ScoreExtract
-from marketedge.ingestion.resolution import (
+from arbitrium.ingestion.outcomes import ScoreExtract
+from arbitrium.ingestion.resolution import (
     ESPN_RESOLUTION_SOURCE,
     ResolutionOutcome,
     backfill_targets,

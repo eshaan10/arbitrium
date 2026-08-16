@@ -15,7 +15,7 @@ from sqlalchemy import engine_from_config, pool
 
 # target_metadata is provided for completeness / future tooling. We do not run
 # autogenerate, so it is not strictly required, but it keeps models discoverable.
-from marketedge.db.models import Base  # noqa: E402
+from arbitrium.db.models import Base  # noqa: E402
 
 config = context.config
 

@@ -1,0 +1,60 @@
+# Fly.io deployment for the Arbitrium backend.
+#
+# ONE image, TWO process groups — the same split docker-compose already has:
+#
+#   api        the FastAPI service
+#   scheduler  the long-running poller loop (Kalshi, Odds API, calibration,
+#              resolution), each on its own interval
+#
+# The scheduler is the reason this is a process group rather than a cron job.
+# It holds per-source interval state in memory and adapts the Odds API cadence
+# to the next kickoff; restarting it on a fixed schedule would reset that and
+# spend credits at the wrong rate.
+#
+# auto_stop_machines is OFF and min_machines_running is 1 for BOTH groups. A
+# scheduler that gets scaled to zero stops accumulating history, and the gap is
+# unrecoverable — the scores feed only reaches back three days. That is the
+# original outage with a different cause, so the platform is configured to make
+# it impossible rather than unlikely.
+
+app = "arbitrium-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[deploy]
+  # Runs once per deploy, before the new machines take traffic.
+  release_command = "alembic -c db/migrations/alembic.ini upgrade head"
+
+[processes]
+  api = "uvicorn arbitrium.api.main:app --host 0.0.0.0 --port 8000"
+  scheduler = "python -m scheduler.flows"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = false
+  min_machines_running = 1
+  processes = ["api"]
+
+  # Liveness only — deliberately NOT the strict check. Fly restarting the API
+  # because ingestion is stale would be the wrong remedy for the wrong problem;
+  # staleness is an alerting concern, not a restart concern.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["api"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["scheduler"]

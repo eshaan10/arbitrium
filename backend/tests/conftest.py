@@ -15,7 +15,7 @@ def db_session():
     """
     from sqlalchemy.orm import Session
 
-    from marketedge.db.engine import engine
+    from arbitrium.db.engine import engine
 
     conn = engine.connect()
     trans = conn.begin()

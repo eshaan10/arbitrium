@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from marketedge.db.models import Event, OddsSnapshot
-from marketedge.ingestion.odds_api import (
+from arbitrium.db.models import Event, OddsSnapshot
+from arbitrium.ingestion.odds_api import (
     ODDS_SPORTS,
     extract_odds_event,
     ingest_odds_event,
@@ -133,11 +133,11 @@ def test_warns_when_a_book_count_change_would_be_dropped(db_session, caplog):
     """
     import logging
 
-    from marketedge.ingestion.odds_api import (
+    from arbitrium.ingestion.odds_api import (
         BOOK_COUNT_STALE_MARKER,
         _warn_if_book_count_would_be_lost,
     )
-    from marketedge.ingestion.snapshots import insert_snapshots
+    from arbitrium.ingestion.snapshots import insert_snapshots
 
     ev = Event(
         sport="nfl", league="NFL", home_team="Kansas City Chiefs",
@@ -164,11 +164,11 @@ def test_no_warning_when_the_price_moved(db_session, caplog):
     """A moved median means the row lands and the new count is recorded."""
     import logging
 
-    from marketedge.ingestion.odds_api import (
+    from arbitrium.ingestion.odds_api import (
         BOOK_COUNT_STALE_MARKER,
         _warn_if_book_count_would_be_lost,
     )
-    from marketedge.ingestion.snapshots import insert_snapshots
+    from arbitrium.ingestion.snapshots import insert_snapshots
 
     ev = Event(
         sport="nfl", league="NFL", home_team="Buffalo Bills", away_team="Miami Dolphins",
@@ -193,7 +193,7 @@ def test_no_warning_when_the_price_moved(db_session, caplog):
 def test_no_warning_on_a_first_observation(db_session, caplog):
     import logging
 
-    from marketedge.ingestion.odds_api import (
+    from arbitrium.ingestion.odds_api import (
         BOOK_COUNT_STALE_MARKER,
         _warn_if_book_count_would_be_lost,
     )

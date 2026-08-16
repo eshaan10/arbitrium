@@ -14,9 +14,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from marketedge.config import settings
-from marketedge.db.models import Event
-from marketedge.ingestion.resolution import (
+from arbitrium.config import settings
+from arbitrium.db.models import Event
+from arbitrium.ingestion.resolution import (
     CONFLICT_MARKER,
     DATA_LOST_MARKER,
     ResolutionOutcome,
@@ -43,7 +43,7 @@ def _event(db_session, *, days, home="Kansas City Chiefs", away="Denver Broncos"
 
 
 def _extract(ev, home_score, away_score, *, odds_id=None):
-    from marketedge.ingestion.resolution import decide_winner
+    from arbitrium.ingestion.resolution import decide_winner
     return ScoreExtract(
         odds_api_event_id=odds_id or ev.odds_api_event_id or "x",
         home_team=ev.home_team, away_team=ev.away_team,
@@ -249,7 +249,7 @@ def test_kalshi_upsert_does_not_clobber_an_authoritative_kickoff(db_session):
     the 84h resolution window fire up to a day early — that is how a real outcome
     was condemned before it had actually aged out.
     """
-    from marketedge.ingestion.kalshi import KalshiEventMetadata, upsert_event
+    from arbitrium.ingestion.kalshi import KalshiEventMetadata, upsert_event
 
     authoritative = datetime.now(UTC) + timedelta(days=600, hours=23)
     placeholder = authoritative.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -278,7 +278,7 @@ def test_kalshi_upsert_does_not_clobber_an_authoritative_kickoff(db_session):
 def test_kalshi_upsert_still_refreshes_a_provisional_kickoff(db_session):
     """Protection applies only once a source is authoritative — a still-provisional
     event must keep tracking Kalshi, since postponements really do move."""
-    from marketedge.ingestion.kalshi import KalshiEventMetadata, upsert_event
+    from arbitrium.ingestion.kalshi import KalshiEventMetadata, upsert_event
 
     original = datetime.now(UTC) + timedelta(days=601)
     moved = original + timedelta(days=1)

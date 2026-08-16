@@ -30,7 +30,7 @@ is a real state rather than a missing value.
 
 No CHECK constraints: the schema has none anywhere and adding them to one table
 would be inconsistent. Allowed values are documented in
-``marketedge.calibration``.
+``arbitrium.calibration``.
 """
 
 from typing import Sequence, Union

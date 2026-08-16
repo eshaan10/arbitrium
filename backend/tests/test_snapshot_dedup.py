@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from marketedge.db.models import Event, OddsSnapshot
-from marketedge.ingestion.snapshots import insert_snapshots
+from arbitrium.db.models import Event, OddsSnapshot
+from arbitrium.ingestion.snapshots import insert_snapshots
 
 UTC = timezone.utc
 

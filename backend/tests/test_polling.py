@@ -13,10 +13,10 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from marketedge.config import settings
-from marketedge.ingestion.odds_api import OddsApiClient, QuotaExhausted
-from marketedge.ingestion.polling import poll_interval_for, projected_daily_credits
-from marketedge.logging_config import UNHEALTHY_MARKER
+from arbitrium.config import settings
+from arbitrium.ingestion.odds_api import OddsApiClient, QuotaExhausted
+from arbitrium.ingestion.polling import poll_interval_for, projected_daily_credits
+from arbitrium.logging_config import UNHEALTHY_MARKER
 
 UTC = timezone.utc
 NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)

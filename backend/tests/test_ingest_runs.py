@@ -13,10 +13,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import delete
 
-from marketedge.db.engine import get_session
-from marketedge.db.models import IngestRun
-from marketedge.ingestion.result import IngestResult
-from marketedge.ingestion.runs import (
+from arbitrium.db.engine import get_session
+from arbitrium.db.models import IngestRun
+from arbitrium.ingestion.result import IngestResult
+from arbitrium.ingestion.runs import (
     ABANDONED,
     FAILURE,
     RUNNING,

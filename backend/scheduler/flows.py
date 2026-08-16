@@ -19,14 +19,14 @@ from collections.abc import Callable
 
 from prefect import flow, task
 
-from marketedge.calibration import grading
-from marketedge.config import settings
-from marketedge.db.engine import get_session
-from marketedge.ingestion import kalshi, odds_api, resolution
-from marketedge.ingestion.polling import odds_poll_interval
-from marketedge.ingestion.result import IngestResult
-from marketedge.ingestion.runs import fail_run, finish_run, start_run, sweep_abandoned_runs
-from marketedge.logging_config import configure_logging
+from arbitrium.calibration import grading
+from arbitrium.config import settings
+from arbitrium.db.engine import get_session
+from arbitrium.ingestion import kalshi, odds_api, resolution
+from arbitrium.ingestion.polling import odds_poll_interval
+from arbitrium.ingestion.result import IngestResult
+from arbitrium.ingestion.runs import fail_run, finish_run, start_run, sweep_abandoned_runs
+from arbitrium.logging_config import configure_logging
 from scheduler.health import IngestHealth
 
 configure_logging()

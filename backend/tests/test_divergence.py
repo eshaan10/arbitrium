@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from marketedge.db.models import Event, OddsSnapshot
-from marketedge.divergence.engine import (
+from arbitrium.db.models import Event, OddsSnapshot
+from arbitrium.divergence.engine import (
     DivergenceStatus,
     OutcomeDivergence,
     OutcomeQuote,
@@ -332,7 +332,7 @@ def test_two_way_outcomes_are_one_bet_not_two():
 def _event_divergence(rows):
     import uuid
 
-    from marketedge.divergence.engine import EventDivergence
+    from arbitrium.divergence.engine import EventDivergence
     return EventDivergence(
         event_id=uuid.uuid4(), sport="nfl", league="NFL",
         home_team="Vikings", away_team="Packers", scheduled_start=T0,
