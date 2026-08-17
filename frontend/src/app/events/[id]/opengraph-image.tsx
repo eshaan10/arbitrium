@@ -21,32 +21,43 @@ export const alt = "Arbitrium event";
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  let event = null;
+  let detail = null;
   try {
-    event = (await fetchEvent(id)).event;
+    detail = await fetchEvent(id);
   } catch {
-    event = null;
+    detail = null;
   }
 
-  const rec = event?.recommendation ?? null;
+  const event = detail?.event ?? null;
+  // Null once the game has kicked off. A share preview is the most-forwarded
+  // surface in the product, so a finished game says so rather than carrying a
+  // price nobody can trade.
+  const d = detail?.divergence ?? null;
+  const rec = d?.recommendation ?? null;
   const away = event?.away_team ?? null;
   const home = event?.home_team ?? null;
 
   const headline = rec
     ? `Buy ${rec.side.toUpperCase()} ${teamVisual(rec.team)?.short ?? rec.team}`
-    : event
-      ? "No recommendation"
-      : "Arbitrium";
+    : !event
+      ? "Arbitrium"
+      : d
+        ? "No recommendation"
+        : "Final";
 
   const price = rec ? `${Math.round(rec.price * 100)}¢` : null;
 
   const sub = rec
-    ? `${event?.n_books ?? 0} sportsbooks price this nearer ${Math.round(
+    ? `${d?.n_books ?? 0} sportsbooks price this nearer ${Math.round(
         rec.fair_value * 100,
       )}¢ · directional bet, pays $1 or nothing`
-    : event
-      ? "Kalshi and the sportsbooks agree, or too few books have posted a line."
-      : "Kalshi vs sportsbook consensus";
+    : !event
+      ? "Kalshi vs sportsbook consensus"
+      : d
+        ? "Kalshi and the sportsbooks agree, or too few books have posted a line."
+        : event.winner_team
+          ? `${teamVisual(event.winner_team)?.short ?? event.winner_team} won · closing prices recorded`
+          : "This game has finished · closing prices recorded";
 
   return new ImageResponse(
     (

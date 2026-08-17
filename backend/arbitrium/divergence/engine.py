@@ -691,12 +691,19 @@ def compute_divergences(
     session: Session,
     *,
     sport: str | None = None,
+    event_id: uuid_mod.UUID | None = None,
     status: DivergenceStatus | None = None,
     min_divergence: float | None = None,
     tradeable_only: bool = False,
     limit: int = 200,
 ) -> list[EventDivergence]:
     """Score every scheduled event, biggest capturable edge first.
+
+    ``event_id`` narrows to a single event WITHOUT relaxing the scheduled-only
+    rule. A finished game still has last-known quotes, and scoring them would
+    emit a divergence and a recommendation for a bet nobody can place — so a
+    past event returns an empty list here, and the caller reports what actually
+    happened instead of a stale-looking edge.
 
     Filters are applied AFTER scoring so that a filter can never turn "we don't
     trust this" into "this doesn't exist" — an event excluded by ``status`` was
@@ -719,6 +726,8 @@ def compute_divergences(
     ).where(Event.status == "scheduled")
     if sport:
         ev_stmt = ev_stmt.where(Event.sport == sport)
+    if event_id is not None:
+        ev_stmt = ev_stmt.where(Event.id == event_id)
     events = session.execute(ev_stmt.order_by(Event.scheduled_start)).all()
 
     quotes = _latest_quotes(session, [e.id for e in events])

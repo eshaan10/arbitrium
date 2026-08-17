@@ -224,6 +224,117 @@ def _r(value: float | None, places: int = 6) -> float | None:
     return None if value is None else round(value, places)
 
 
+def _divergence_payload(r) -> dict:
+    """Serialize one scored event.
+
+    Shared by /divergences and /events/{id} so a deep link and a list row can
+    never describe the same event differently — the detail page renders this
+    exact shape, and a second hand-maintained copy would drift.
+    """
+    return {
+        "event_id": str(r.event_id),
+        "sport": r.sport,
+        "league": r.league,
+        "home_team": r.home_team,
+        "away_team": r.away_team,
+        "scheduled_start": r.scheduled_start.isoformat(),
+        "status": r.status.value,
+        "reason": r.reason,
+        "sources": r.sources,
+        "n_books": r.n_books,
+        # Provenance: is home/away still Kalshi's provisional guess, or
+        # confirmed against The Odds API?
+        "home_away_source": r.home_away_source,
+        "kalshi_event_ticker": r.kalshi_event_ticker,
+        "odds_api_event_id": r.odds_api_event_id,
+        "max_abs_divergence": _r(r.max_abs_divergence),
+        "best_net_edge": _r(r.best_net_edge),
+        "tradeable": r.tradeable,
+        # The Kalshi-native directional view: one platform, one buy.
+        # NOT guaranteed — see KalshiRecommendation on why this must
+        # never share language with arbitrage.
+        "recommendation": (
+            {
+                "team": r.recommendation.team,
+                "side": r.recommendation.side,          # 'yes' | 'no', both buys
+                "price": _r(r.recommendation.price, 4),
+                "fair_value": _r(r.recommendation.fair_value, 4),
+                "edge": _r(r.recommendation.edge, 4),
+                "wins_if": r.recommendation.wins_if,
+                "max_contracts": r.recommendation.max_contracts,
+                "max_stake": _r(r.recommendation.max_stake, 2),
+            }
+            if r.recommendation
+            else None
+        ),
+        "kalshi_series": r.kalshi_series,
+        "best_expected_value": _r(r.best_expected_value, 4),
+        # Risk-free, and therefore NOT a kind of net edge: an arbitrage
+        # pays regardless of outcome, while a net edge only pays if the
+        # sportsbook consensus is the better estimate. Own field, own
+        # meaning, never folded into the edge numbers.
+        "is_arbitrage": r.is_arbitrage,
+        "arbitrage": (
+            {
+                "total_cost": _r(r.arbitrage.total_cost),
+                # GROSS: no fees, no execution risk. An upper bound, not a return.
+                "gross_profit": _r(r.arbitrage.gross_profit),
+                "limiting_depth": r.arbitrage.limiting_depth,
+                # A Kalshi user cannot act on an arbitrage with no Kalshi
+                # leg without holding both named sportsbook accounts, so
+                # say so rather than implying it is available to them.
+                "venues": sorted({l.venue for l in r.arbitrage.legs}),
+                "includes_kalshi": any(l.venue == "kalshi" for l in r.arbitrage.legs),
+                "legs": [
+                    {
+                        "team": leg.team,
+                        "venue": leg.venue,
+                        "implied_price": _r(leg.implied_price),
+                    }
+                    for leg in r.arbitrage.legs
+                ],
+            }
+            if r.arbitrage
+            else None
+        ),
+        # The single best fill. Outcome rows are alternative executions of
+        # one directional view, not independent bets, so callers must act
+        # on this rather than summing per-outcome edges.
+        "best_trade": (
+            {
+                "team": r.best_trade.team,
+                "side": r.best_trade.trade_side,
+                "net_edge_after_spread": _r(r.best_trade.net_edge_after_spread),
+                "resting_depth": r.best_trade.resting_depth,
+            }
+            if r.best_trade
+            else None
+        ),
+        "outcomes": [
+            {
+                "team": o.team,
+                "kalshi_probability": _r(o.kalshi_probability),
+                "consensus_probability": _r(o.consensus_probability),
+                "divergence": _r(o.divergence),
+                "net_edge_after_spread": _r(o.net_edge_after_spread),
+                "trade_side": o.trade_side,
+                "spread": _r(o.spread),
+                "resting_depth": o.resting_depth,
+                "kalshi_bid": _r(o.kalshi_bid, 4),
+                "kalshi_ask": _r(o.kalshi_ask, 4),
+                "kalshi_ask_size": o.kalshi_ask_size,
+                "kalshi_bid_size": o.kalshi_bid_size,
+                "expected_value_at_depth": _r(o.expected_value_at_depth, 4),
+                # Raw per-book American odds, so "9 books" can be shown
+                # as nine named prices instead of an abstract count.
+                "books": o.book_prices,
+                "tradeable": o.tradeable,
+            }
+            for o in r.outcomes
+        ],
+    }
+
+
 @app.get("/divergences")
 def divergences(
     sport: str | None = Query(None, description="Filter to one sport, e.g. 'nfl'."),
@@ -270,111 +381,7 @@ def divergences(
         "counts_by_status": counts,
         "tradeable_count": sum(1 for r in results if r.tradeable),
         "arbitrage_count": sum(1 for r in results if r.is_arbitrage),
-        "divergences": [
-            {
-                "event_id": str(r.event_id),
-                "sport": r.sport,
-                "league": r.league,
-                "home_team": r.home_team,
-                "away_team": r.away_team,
-                "scheduled_start": r.scheduled_start.isoformat(),
-                "status": r.status.value,
-                "reason": r.reason,
-                "sources": r.sources,
-                "n_books": r.n_books,
-                # Provenance: is home/away still Kalshi's provisional guess, or
-                # confirmed against The Odds API?
-                "home_away_source": r.home_away_source,
-                "kalshi_event_ticker": r.kalshi_event_ticker,
-                "odds_api_event_id": r.odds_api_event_id,
-                "max_abs_divergence": _r(r.max_abs_divergence),
-                "best_net_edge": _r(r.best_net_edge),
-                "tradeable": r.tradeable,
-                # The Kalshi-native directional view: one platform, one buy.
-                # NOT guaranteed — see KalshiRecommendation on why this must
-                # never share language with arbitrage.
-                "recommendation": (
-                    {
-                        "team": r.recommendation.team,
-                        "side": r.recommendation.side,          # 'yes' | 'no', both buys
-                        "price": _r(r.recommendation.price, 4),
-                        "fair_value": _r(r.recommendation.fair_value, 4),
-                        "edge": _r(r.recommendation.edge, 4),
-                        "wins_if": r.recommendation.wins_if,
-                        "max_contracts": r.recommendation.max_contracts,
-                        "max_stake": _r(r.recommendation.max_stake, 2),
-                    }
-                    if r.recommendation
-                    else None
-                ),
-                "kalshi_series": r.kalshi_series,
-                "best_expected_value": _r(r.best_expected_value, 4),
-                # Risk-free, and therefore NOT a kind of net edge: an arbitrage
-                # pays regardless of outcome, while a net edge only pays if the
-                # sportsbook consensus is the better estimate. Own field, own
-                # meaning, never folded into the edge numbers.
-                "is_arbitrage": r.is_arbitrage,
-                "arbitrage": (
-                    {
-                        "total_cost": _r(r.arbitrage.total_cost),
-                        # GROSS: no fees, no execution risk. An upper bound, not a return.
-                        "gross_profit": _r(r.arbitrage.gross_profit),
-                        "limiting_depth": r.arbitrage.limiting_depth,
-                        # A Kalshi user cannot act on an arbitrage with no Kalshi
-                        # leg without holding both named sportsbook accounts, so
-                        # say so rather than implying it is available to them.
-                        "venues": sorted({l.venue for l in r.arbitrage.legs}),
-                        "includes_kalshi": any(l.venue == "kalshi" for l in r.arbitrage.legs),
-                        "legs": [
-                            {
-                                "team": leg.team,
-                                "venue": leg.venue,
-                                "implied_price": _r(leg.implied_price),
-                            }
-                            for leg in r.arbitrage.legs
-                        ],
-                    }
-                    if r.arbitrage
-                    else None
-                ),
-                # The single best fill. Outcome rows are alternative executions of
-                # one directional view, not independent bets, so callers must act
-                # on this rather than summing per-outcome edges.
-                "best_trade": (
-                    {
-                        "team": r.best_trade.team,
-                        "side": r.best_trade.trade_side,
-                        "net_edge_after_spread": _r(r.best_trade.net_edge_after_spread),
-                        "resting_depth": r.best_trade.resting_depth,
-                    }
-                    if r.best_trade
-                    else None
-                ),
-                "outcomes": [
-                    {
-                        "team": o.team,
-                        "kalshi_probability": _r(o.kalshi_probability),
-                        "consensus_probability": _r(o.consensus_probability),
-                        "divergence": _r(o.divergence),
-                        "net_edge_after_spread": _r(o.net_edge_after_spread),
-                        "trade_side": o.trade_side,
-                        "spread": _r(o.spread),
-                        "resting_depth": o.resting_depth,
-                        "kalshi_bid": _r(o.kalshi_bid, 4),
-                        "kalshi_ask": _r(o.kalshi_ask, 4),
-                        "kalshi_ask_size": o.kalshi_ask_size,
-                        "kalshi_bid_size": o.kalshi_bid_size,
-                        "expected_value_at_depth": _r(o.expected_value_at_depth, 4),
-                        # Raw per-book American odds, so "9 books" can be shown
-                        # as nine named prices instead of an abstract count.
-                        "books": o.book_prices,
-                        "tradeable": o.tradeable,
-                    }
-                    for o in r.outcomes
-                ],
-            }
-            for r in results
-        ],
+        "divergences": [_divergence_payload(r) for r in results],
     }
 
 
@@ -430,6 +437,71 @@ def event_history(
     }
 
 
+def _event_record(e: Event) -> dict:
+    """The stored facts about an event, and nothing derived.
+
+    A winner only if one was resolved, scores only if they were collected, and
+    the reason a game was declared unresolvable when that is what happened.
+    """
+    return {
+        "event_id": str(e.id),
+        "sport": e.sport,
+        "league": e.league,
+        "home_team": e.home_team,
+        "away_team": e.away_team,
+        "scheduled_start": e.scheduled_start.isoformat(),
+        "status": e.status,
+        "winner_team": e.winner_team,
+        "home_score": e.home_score,
+        "away_score": e.away_score,
+        "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
+        "resolution_source": e.resolution_source,
+        # Set when the scoreboard window closed before an outcome could be
+        # collected. The result is gone permanently, and saying so is the only
+        # honest thing left to report.
+        "unresolvable_reason": e.unresolvable_reason,
+        "home_away_source": e.home_away_source,
+        "kalshi_event_ticker": e.kalshi_event_ticker,
+    }
+
+
+def _closing_prices(db: Session, ev: Event) -> list[dict]:
+    """The last price each source recorded at or before kickoff.
+
+    The closing line — an observation, not a re-derivation. The cutoff is
+    kickoff rather than "latest row" deliberately: Kalshi keeps trading after
+    the whistle, and a price set once the game is half over is not what the
+    market believed going in.
+
+    ``lag`` is not needed here; one row per (source, team) is the whole answer.
+    Ordering by ``snapshot_time, id`` matches the history endpoint, so two views
+    of the same event can't disagree about which row came last.
+    """
+    rows = db.execute(
+        select(
+            OddsSnapshot.source,
+            OddsSnapshot.team,
+            OddsSnapshot.implied_probability,
+            OddsSnapshot.snapshot_time,
+        )
+        .where(
+            OddsSnapshot.event_id == ev.id,
+            OddsSnapshot.snapshot_time <= ev.scheduled_start,
+        )
+        .order_by(OddsSnapshot.snapshot_time, OddsSnapshot.id)
+    ).all()
+
+    latest: dict[tuple[str, str | None], dict] = {}
+    for r in rows:
+        latest[(r.source, r.team)] = {
+            "source": r.source,
+            "team": r.team,
+            "implied_probability": _r(float(r.implied_probability)),
+            "snapshot_time": r.snapshot_time.isoformat(),
+        }
+    return sorted(latest.values(), key=lambda d: (d["team"] or "", d["source"]))
+
+
 @app.get("/events/lookup")
 def events_lookup(
     ids: str = Query(..., description="Comma-separated event ids."),
@@ -466,29 +538,41 @@ def events_lookup(
         select(Event).where(Event.id.in_(wanted[:200]))
     ).scalars().all()
 
+    return {"count": len(rows), "events": [_event_record(e) for e in rows]}
+
+
+@app.get("/events/{event_id}")
+def event_detail(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> dict:
+    """One event, whatever state it is in.
+
+    Deep links have to resolve for the whole life of an event, not just while it
+    is tradeable. /divergences scores only scheduled events, so resolving a link
+    against that list meant a game 404'd the moment it kicked off — the saved
+    link rotted exactly when the result it pointed at became knowable.
+
+    So this answers from stored data instead, and returns different things for
+    different states rather than one shape padded with nulls:
+
+    * scheduled — the live divergence body, byte-identical to the list row.
+    * anything else — ``divergence: null``, plus ``closing`` : the last price
+      each source recorded AT OR BEFORE kickoff. That is a real observation
+      (the closing line), not a re-scored stale quote. No divergence, edge, or
+      recommendation is computed for a game nobody can bet on.
+    """
+    ev = db.get(Event, event_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="Unknown event")
+
+    scored = compute_divergences(db, event_id=event_id, limit=1)
+
     return {
-        "count": len(rows),
-        "events": [
-            {
-                "event_id": str(e.id),
-                "sport": e.sport,
-                "league": e.league,
-                "home_team": e.home_team,
-                "away_team": e.away_team,
-                "scheduled_start": e.scheduled_start.isoformat(),
-                "status": e.status,
-                "winner_team": e.winner_team,
-                "home_score": e.home_score,
-                "away_score": e.away_score,
-                "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
-                "resolution_source": e.resolution_source,
-                # Set when the scoreboard window closed before an outcome could
-                # be collected. The result is gone permanently, and saying so is
-                # the only honest thing left to report.
-                "unresolvable_reason": e.unresolvable_reason,
-            }
-            for e in rows
-        ],
+        "min_consensus_books": settings.min_consensus_books,
+        "event": _event_record(ev),
+        "divergence": _divergence_payload(scored[0]) if scored else None,
+        "closing": None if scored else _closing_prices(db, ev),
     }
 
 

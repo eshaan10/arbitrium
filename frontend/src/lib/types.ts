@@ -10,10 +10,7 @@
 
 /** Mirrors DivergenceStatus in backend/arbitrium/divergence/engine.py. */
 export type DivergenceStatus =
-  | "scored"
-  | "single_source_no_divergence"
-  | "insufficient_consensus"
-  | "incomparable_outcomes";
+  "scored" | "single_source_no_divergence" | "insufficient_consensus" | "incomparable_outcomes";
 
 export type Source = "kalshi" | "consensus";
 
@@ -283,9 +280,34 @@ export interface EventRecord {
   resolution_source: string | null;
   /** Set when the result window closed before an outcome could be collected. */
   unresolvable_reason: string | null;
+  home_away_source?: string | null;
+  kalshi_event_ticker?: string | null;
 }
 
 export interface EventsLookupResponse {
   count: number;
   events: EventRecord[];
+}
+
+/** One source's last observation at or before kickoff — the closing line. */
+export interface ClosingPrice {
+  source: Source;
+  team: string | null;
+  implied_probability: number;
+  snapshot_time: string;
+}
+
+/**
+ * GET /events/{id} — a deep link that resolves for the whole life of an event.
+ *
+ * `divergence` is present only while the game is scheduled. Afterwards it is
+ * null and `closing` carries what each source last recorded before kickoff; the
+ * backend deliberately does not re-score a finished game, so there is no stale
+ * edge or recommendation to mistake for a live one.
+ */
+export interface EventDetailResponse {
+  min_consensus_books: number;
+  event: EventRecord;
+  divergence: Divergence | null;
+  closing: ClosingPrice[] | null;
 }

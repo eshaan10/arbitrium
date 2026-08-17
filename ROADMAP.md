@@ -180,9 +180,33 @@ authoritative and isn't.
   handful of self-selected games cannot support one.
 
 **Added to the backend for it.** `/activity` (recent real price movement — no
-existing endpoint could answer "what just moved?" without N requests) and
+existing endpoint could answer "what just moved?" without N requests),
 `/events/lookup` (resolved games by id, since `/divergences` scores only
-scheduled events, so a pinned game vanishes at kickoff).
+scheduled events, so a pinned game vanishes at kickoff), and `/events/{id}`
+(one event in whatever state it is in).
+
+**Bug: a deep link that expired with its game.** The detail page resolved an
+event out of the `/divergences` list, which scores only scheduled events — so
+every link 404'd the instant its game kicked off, and the finished-games view
+led nowhere. `/events/{id}` now answers from stored data: the live divergence
+body while a game is scheduled, and afterwards the result plus each source's
+last price at or before kickoff. A finished game is deliberately **not**
+re-scored. Kalshi keeps trading after the whistle, so its last quote reflects a
+market that already knows the score; presenting that as a closing line would
+flatter every comparison drawn from it, and presenting an edge computed from it
+would describe a trade that no longer exists. Both endpoints share one
+serializer, so a list row and a deep link cannot disagree about the same game.
+
+**Bug: a seven-hour clock.** Kickoff times used the platform's default
+timezone. The server ran in UTC and the browser in the viewer's zone, so the
+same game read `8:25 PM` server-side and `1:25 PM` in a Pacific browser — wrong
+for the reader, and a hydration mismatch as well. Suppressing the warning would
+have kept the wrong time. The server cannot learn the browser's zone, so the
+first render (server and hydration alike) is pinned to one fixed zone and swaps
+to the viewer's after mount; both carry a zone label, so the swap reads as a
+correction. The relative "in 3d" beside it keeps its suppression — that one is
+genuinely clock-dependent and coarse enough to be harmless, which is the
+distinction the fix turns on.
 
 **Notable frontend bugs found by looking at the running app**, all fixed: the
 dashboard silently truncating at the API's default limit and misreporting every

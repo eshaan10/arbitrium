@@ -14,6 +14,7 @@ const ALLOWED = [
   /^divergences$/,
   /^events\/[^/]+\/history$/,
   /^events\/lookup$/,
+  /^events\/[^/]+$/,
   /^performance$/,
   /^health$/,
   /^activity$/,

@@ -12,7 +12,8 @@ import { FavoriteGameButton } from "./FavoriteGameButton";
 import { MoveChip } from "./MoveChip";
 import { STATUS_LABEL, kalshiUrl, shortUnscoreableReason } from "@/lib/copy";
 import { opacityOf } from "@/lib/confidence";
-import { cents, kickoff, timeToKickoff } from "@/lib/format";
+import { cents, timeToKickoff } from "@/lib/format";
+import { KickoffTime } from "./KickoffTime";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence } from "@/lib/types";
 import type { Mode } from "@/lib/mode";
@@ -98,12 +99,15 @@ export function EventCard({
         </div>
       </div>
 
-      <div
-        className="mt-1 flex items-center gap-2 text-micro text-faint"
-        suppressHydrationWarning
-      >
-        <span className="text-muted">{timeToKickoff(d.scheduled_start)}</span>
-        <span>{kickoff(d.scheduled_start)}</span>
+      <div className="mt-1 flex items-center gap-2 text-micro text-faint">
+        {/* Genuinely clock-dependent: the server computes "in 3d" at request
+            time and the browser at hydration. Coarse enough that they agree in
+            practice, and harmless when they don't — unlike the absolute time
+            beside it, which is a fixed fact and is formatted deterministically. */}
+        <span className="text-muted" suppressHydrationWarning>
+          {timeToKickoff(d.scheduled_start)}
+        </span>
+        <KickoffTime iso={d.scheduled_start} />
         {move ? <MoveChip move={move} /> : null}
       </div>
 

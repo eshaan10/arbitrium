@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchEventsLookup, queryKeys } from "@/lib/api";
 import { teamVisual } from "@/lib/teams";
-import { kickoff } from "@/lib/format";
+import { KickoffTime } from "@/components/event/KickoffTime";
 import type { PinnedGame } from "@/lib/storage";
 import type { EventRecord } from "@/lib/types";
 
@@ -136,9 +136,7 @@ function PastRow({ g }: { g: Graded }) {
         </span>
       </div>
       <p className="mt-1.5 text-meta text-muted">{g.detail}</p>
-      <p className="mt-1 text-micro text-faint" suppressHydrationWarning>
-        {kickoff(g.event.scheduled_start)}
-      </p>
+      <KickoffTime iso={g.event.scheduled_start} className="mt-1 block text-micro text-faint" />
     </Link>
   );
 }

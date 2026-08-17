@@ -1,6 +1,7 @@
 import type {
   ActivityResponse,
   DivergencesResponse,
+  EventDetailResponse,
   EventHistory,
   EventsLookupResponse,
   HealthResponse,
@@ -100,16 +101,17 @@ export function fetchActivity(hours = 24, limit = 40): Promise<ActivityResponse>
 }
 
 /**
- * There is no GET /events/{id} carrying the divergence body — only the list
- * endpoint and a separate /events/{id}/history. So a deep link resolves by
- * pulling the list and selecting from it. That is one extra round trip on a
- * cold load and it warms the list cache for the back navigation; when the
- * backend grows a single-event endpoint, only this function changes.
+ * One event, in whatever state it is in.
+ *
+ * This used to resolve a deep link by pulling the whole /divergences list and
+ * selecting from it. That worked only while a game was scheduled: /divergences
+ * scores nothing else, so a link 404'd the moment the game kicked off — the
+ * saved link rotted exactly when the result became knowable, which made the
+ * finished-games view unreachable. The backend now answers from stored data,
+ * and a past event comes back with `divergence: null` plus its closing prices.
  */
-export async function fetchEvent(eventId: string) {
-  const data = await fetchDivergences({ limit: LIST_LIMIT });
-  const event = data.divergences.find((d) => d.event_id === eventId) ?? null;
-  return { event, minConsensusBooks: data.min_consensus_books };
+export function fetchEvent(eventId: string): Promise<EventDetailResponse> {
+  return get<EventDetailResponse>(`/events/${encodeURIComponent(eventId)}`);
 }
 
 /** Query keys, in one place so invalidation can't drift from the fetchers. */

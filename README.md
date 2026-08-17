@@ -24,7 +24,7 @@ score this" rather than filling the space.
 | 4 | Combo optimizer | **Not built** — see below |
 | 5 | Next.js frontend | **Built** |
 
-267 backend tests, 142 frontend tests. Every claim below is either covered by a
+276 backend tests, 147 frontend tests. Every claim below is either covered by a
 test or was verified against the live database.
 
 ---
@@ -111,6 +111,25 @@ bet. The sample gate counts rows, so that inflates `n` and shrinks every
 confidence interval: the "two sides of a two-way market are one bet" error
 arriving through the back door. Now one row per `(event_id, origin)`.
 
+**A deep link that expired with its game.** The detail page resolved an event
+by pulling `/divergences` and selecting from it — but that endpoint scores only
+*scheduled* events, deliberately, so a saved link 404'd the moment its game
+kicked off. The link rotted exactly when someone would open it: to find out what
+happened. `GET /events/{id}` now answers from stored data, returning the live
+divergence body while a game is scheduled and, afterwards, the result plus each
+source's last price *at or before kickoff*. A finished game is never re-scored:
+Kalshi keeps trading after the whistle, and a quote from a market that already
+knows the score is not a closing line, let alone an edge.
+
+**A seven-hour clock.** Kickoff times were formatted with the platform default
+timezone, so the server rendered `8:25 PM` and a Pacific browser rendered
+`1:25 PM` for the same game — wrong for the reader, and a React hydration
+mismatch on the way. The server cannot know the browser's zone, so the first
+render (server *and* hydration) is pinned to one fixed zone and swaps to the
+viewer's after mount; both forms carry a zone label so the swap reads as a
+correction rather than a glitch. A test moves the ambient zone around underneath
+the formatter and fails if anyone reverts to platform-default formatting.
+
 **A monitor that cried wolf.** `/health` judged the Odds API against the flat
 15-minute setting while the poller ran on the adaptive schedule — a threshold
 wrong by up to 96×, reporting a healthy poller as stale for most of every week.
@@ -125,9 +144,10 @@ a test that fails if anyone reverts it.
 
 ```
 Kalshi API ─┐                          ┌─ /divergences   scored events + reasons
-            ├─ pollers ─→ Postgres ─→ ─┼─ /events/{id}/history
-Odds API ───┘  (adaptive) (append-only)├─ /events/lookup  resolved games by id
-ESPN (resolution fallback)             ├─ /activity       recent real price moves
+            ├─ pollers ─→ Postgres ─→ ─┼─ /events/{id}         one event, any state
+Odds API ───┘  (adaptive) (append-only)├─ /events/{id}/history
+ESPN (resolution fallback)             ├─ /events/lookup  resolved games by id
+                                       ├─ /activity       recent real price moves
                                        ├─ /performance    gated self-grading
                                        └─ /health         per-source freshness
                                                 │
