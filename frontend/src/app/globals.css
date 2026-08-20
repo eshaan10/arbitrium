@@ -88,15 +88,14 @@
   --series-reference: #55504a; /* perfect-calibration diagonal, ideal lines */
 
   /* --- type stacks ---
-     `--font-data` is set by next/font on <html>. There is deliberately no
-     webfont for the prose face: it is a handful of paragraphs, and the
-     reader's own system sans renders them best for free.
+     `--font-data` is set by next/font on <html>, and it is the face for the
+     whole app: readout and prose alike. --stack-sans is kept as the fallback
+     of last resort for anything that must not be mono; nothing uses it today.
 
      These carry NO undefined variables. An earlier version had
      `--font-sans: var(--font-voice), ui-sans-serif, ...` with --font-voice
      never defined, which makes the whole declaration invalid at computed-value
-     time — so every `.prose` block silently inherited the mono face and the
-     sans/mono split appeared not to work at all. */
+     time — a silent failure worth not reintroducing. */
   --stack-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", sans-serif;
   --stack-mono: var(--font-data, ui-monospace), ui-monospace, "SF Mono", Menlo,
@@ -226,24 +225,21 @@ html {
 /* ============================================================================
    TYPOGRAPHY: the terminal identity lives here, not only in the colour.
 
-   The rule, and the reason it is expressed as a DEFAULT rather than as a class
-   applied at each call site:
+   ONE face, everywhere: the mono. Prices, probabilities, counts, team names,
+   status words, timestamps, labels, buttons, tabs — and the explainers too.
 
-     MONO is the default. Everything the system measured or named — prices,
-     probabilities, counts, team names, book names, status words, timestamps,
-     section labels, buttons, tabs — is mono. This is the instrument's readout,
-     and it is the overwhelming majority of the UI.
+   A previous version reserved a system sans for long-form prose, on the theory
+   that mono reads slower and the caveats must not be skipped. In practice the
+   two faces read as two different products: the landing lede and the
+   How-it-works page looked pasted in from somewhere else, which undercuts the
+   caveats rather than protecting them. The readability concern is now handled
+   where it belongs — tracking, line-height, and measure on `.prose` — instead
+   of by switching family.
 
-     SANS is opt-in, via `.prose`, and ONLY for long-form prose a person wrote:
-     the landing explainer, the About and How-it-works body, the sentences that
-     explain what a number does not mean. Prose set in mono reads slower, and
-     the caveats are the part that must not be skipped.
-
-   Making mono the default is what keeps this consistent. The earlier version
-   opted IN to mono per element, so anything overlooked silently fell back to
-   sans — which is exactly how tile labels ended up sans while the values under
-   them were mono. Now anything overlooked is mono, which is the intended
-   default, and the exceptions are a short enumerable list.
+   Mono is still the DEFAULT rather than a class applied per call site. An
+   earlier version opted IN to mono per element, so anything overlooked fell
+   silently back to sans — which is exactly how tile labels ended up sans while
+   the values under them were mono.
    ========================================================================= */
 
 body {
@@ -254,9 +250,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Long-form prose. The ONLY way to get the sans face. */
+/* Long-form prose. Same mono face as the rest of the app — the split face read
+   as two products bolted together, and the explainer is the one place a reader
+   most needs to feel they are still inside the instrument.
+
+   What survives from the sans version is the READABILITY tuning, which is the
+   part that was actually doing the work: mono at the body's -0.01em tracking
+   sets too tight for paragraphs, so tracking returns to normal here. Measure is
+   still capped at the call site in `ch`, which tracks the wider mono advance on
+   its own. */
 .prose {
-  font-family: var(--stack-sans);
+  font-family: var(--stack-mono);
   letter-spacing: normal;
 }
 

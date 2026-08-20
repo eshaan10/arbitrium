@@ -38,3 +38,7 @@ frontend/.env*.local
 .idea/
 .vscode/
 .env
+
+# Raw postgres data-directory tarballs. These are restore points, not source:
+# tens of MB of binary cluster state, and they contain real market data.
+backups/

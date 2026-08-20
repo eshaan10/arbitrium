@@ -75,4 +75,18 @@ services:
       - api
 
 volumes:
+  # Pinned to an explicit name, and the name is the OLD project's.
+  #
+  # Compose derives a volume's real name from the project directory, so renaming
+  # marketedge -> arbitrium silently pointed postgres at a brand-new, empty
+  # `arbitrium_pgdata` and left every ingest run, odds snapshot, and graded
+  # calibration record sitting in `marketedge_pgdata`. Nothing was deleted; the
+  # stack was simply looking in the wrong place.
+  #
+  # Pinning `name:` decouples the volume from the project name, so this cannot
+  # happen again on a future rename. The stale-looking `marketedge_pgdata` is
+  # deliberate: renaming the volume for tidiness would mean copying a live
+  # postgres data directory, and that is real risk taken on for a cosmetic
+  # gain. The data is what matters, not what the volume is called.
   pgdata:
+    name: marketedge_pgdata

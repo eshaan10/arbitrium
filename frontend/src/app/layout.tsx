@@ -5,13 +5,12 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 /**
- * One webfont, for the data only.
+ * One webfont, for the whole app.
  *
- * The terminal identity is carried by how the measurements are typeset, so the
- * mono is worth a download; prose stays on the system sans, which costs
- * nothing and is what the reader's own OS renders best. `display: "swap"`
- * because a dashboard that shows nothing while a font loads is worse than one
- * that reflows.
+ * The terminal identity is carried by how everything is typeset — the
+ * measurements and the sentences that explain them — so this face is worth a
+ * download and there is no second one. `display: "swap"` because a dashboard
+ * that shows nothing while a font loads is worse than one that reflows.
  */
 const data = JetBrains_Mono({
   subsets: ["latin"],
