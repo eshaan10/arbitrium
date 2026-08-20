@@ -83,7 +83,7 @@ export default async function PerformancePage() {
     <div className="space-y-7">
       <div>
         <h1 className="text-lede font-semibold">Performance</h1>
-        <p className="mt-1.5 max-w-prose text-body leading-relaxed text-dim">
+        <p className="prose mt-1.5 max-w-prose text-body leading-relaxed text-dim">
           The system grading its own accuracy, with the sample size in front of every number. Three
           separate bodies of evidence, never blended — a backtest is not a live record, and
           closing-line value is evidence about the signal rather than proof of profit.
@@ -134,7 +134,7 @@ export default async function PerformancePage() {
         <ClvBlock data={data.closing_line_value} />
       </div>
 
-      <p className="max-w-prose text-meta leading-relaxed text-faint">{data.note}</p>
+      <p className="prose max-w-prose text-meta leading-relaxed text-faint">{data.note}</p>
     </div>
   );
 }

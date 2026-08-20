@@ -54,7 +54,7 @@ function Slot({
           <div className="mt-1 truncate text-meta text-muted">{detail}</div>
         </>
       ) : (
-        <div className="mt-2 text-meta leading-relaxed text-faint">{empty}</div>
+        <div className="prose mt-2 text-meta leading-relaxed text-faint">{empty}</div>
       )}
     </>
   );

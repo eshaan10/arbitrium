@@ -26,7 +26,7 @@ function Section({
 
 export default function HowItWorksPage() {
   return (
-    <div className="max-w-[68ch] space-y-8">
+    <div className="prose max-w-[68ch] space-y-8">
       <div>
         <h1 className="text-lede font-semibold">How this works</h1>
         <p className="mt-2 text-body text-dim">

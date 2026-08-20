@@ -87,6 +87,21 @@
   --series-grid: #221e1a;
   --series-reference: #55504a; /* perfect-calibration diagonal, ideal lines */
 
+  /* --- type stacks ---
+     `--font-data` is set by next/font on <html>. There is deliberately no
+     webfont for the prose face: it is a handful of paragraphs, and the
+     reader's own system sans renders them best for free.
+
+     These carry NO undefined variables. An earlier version had
+     `--font-sans: var(--font-voice), ui-sans-serif, ...` with --font-voice
+     never defined, which makes the whole declaration invalid at computed-value
+     time — so every `.prose` block silently inherited the mono face and the
+     sans/mono split appeared not to work at all. */
+  --stack-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  --stack-mono: var(--font-data, ui-monospace), ui-monospace, "SF Mono", Menlo,
+    monospace;
+
   /* --- shape & depth --- */
   --r-sm: 4px;
   --r-md: 6px;
@@ -178,13 +193,12 @@
   --text-micro: 10px;
   --text-micro--line-height: 1.4;
 
-  --font-sans: var(--font-voice), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  /* Prices, probabilities and depth are compared down a column constantly, so
-     every number in this app is tabular — and in a terminal the data IS the
-     typeface. See .tabular and .data below for the split. */
-  --font-mono: var(--font-data), ui-monospace, "SF Mono", "JetBrains Mono",
-    Menlo, monospace;
+  /* Both stacks are defined as ordinary tokens on :root (see --stack-* above)
+     and merely re-exported here. Declaring them only inside `@theme inline`
+     would make them available to Tailwind utilities but NOT as real custom
+     properties, so a hand-written rule like `.prose` could not read them. */
+  --font-sans: var(--stack-sans);
+  --font-mono: var(--stack-mono);
 }
 
 /* This product is dark-only by design — the palette carries meaning that a
@@ -194,44 +208,69 @@ html {
   /* iOS rotates into landscape and helpfully enlarges text, which breaks a
      dense grid far worse than small text does. */
   -webkit-text-size-adjust: 100%;
-}
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+  /* `clip`, not `hidden`, and it is here for ONE measured reason: `.tap`
+     projects a 44px hit area from a pseudo-element, and on a control flush
+     against the right edge that invisible box overhangs the viewport by a
+     pixel or two — enough to make the whole page scroll sideways for nothing
+     visible at all.
+
+     `hidden` would turn the root into a scroll container and break every
+     `position: sticky` in the app; `clip` suppresses the scroll without doing
+     that. This is not a licence to let real content overflow: the layout audit
+     checks element rectangles directly, not the document's scroll width, so a
+     genuinely too-wide element is still caught after this line exists. */
+  overflow-x: clip;
 }
 
 /* ============================================================================
    TYPOGRAPHY: the terminal identity lives here, not only in the colour.
 
-   MONO carries everything the system MEASURED — prices, probabilities, counts,
-   team identifiers, timestamps, status words, section labels. Those are the
-   readings on the instrument, and they line up in columns.
+   The rule, and the reason it is expressed as a DEFAULT rather than as a class
+   applied at each call site:
 
-   SANS carries everything a person WROTE — the explanations, the caveats, the
-   reasons an event cannot be scored. Prose set in mono is slower to read, and
-   this product's caveats are the part that must not be skipped.
+     MONO is the default. Everything the system measured or named — prices,
+     probabilities, counts, team names, book names, status words, timestamps,
+     section labels, buttons, tabs — is mono. This is the instrument's readout,
+     and it is the overwhelming majority of the UI.
+
+     SANS is opt-in, via `.prose`, and ONLY for long-form prose a person wrote:
+     the landing explainer, the About and How-it-works body, the sentences that
+     explain what a number does not mean. Prose set in mono reads slower, and
+     the caveats are the part that must not be skipped.
+
+   Making mono the default is what keeps this consistent. The earlier version
+   opted IN to mono per element, so anything overlooked silently fell back to
+   sans — which is exactly how tile labels ended up sans while the values under
+   them were mono. Now anything overlooked is mono, which is the intended
+   default, and the exceptions are a short enumerable list.
    ========================================================================= */
 
-/* Numbers. Every figure in the UI goes through this, so columns line up. */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--stack-mono);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Long-form prose. The ONLY way to get the sans face. */
+.prose {
+  font-family: var(--stack-sans);
+  letter-spacing: normal;
+}
+
+/* Numbers. Adds tabular figures so columns of prices line up; the face is
+   already mono from the body. */
 .tabular {
   font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
+  font-family: var(--stack-mono);
   letter-spacing: -0.01em;
 }
 
-/* Non-numeric data: team names, book names, status words, labels, tickers.
-   Same typeface as the numbers so a row reads as one instrument reading. */
-.data {
-  font-family: var(--font-mono);
-  letter-spacing: -0.01em;
-}
-
-/* A field label in a terminal: small, uppercase, tracked out, mono. */
+/* A field label in a terminal: small, uppercase, tracked out. */
 .label {
-  font-family: var(--font-mono);
+  font-family: var(--stack-mono);
   text-transform: uppercase;
   letter-spacing: 0.09em;
 }

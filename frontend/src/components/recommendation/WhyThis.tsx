@@ -5,7 +5,7 @@ import type { Divergence } from "@/lib/types";
 export function WhyThis({ d, minBooks }: { d: Divergence; minBooks: number }) {
   const segments = whySimple(d, minBooks);
   return (
-    <p className="text-body text-dim">
+    <p className="prose text-body text-dim">
       {segments.map((s, i) =>
         typeof s === "string" ? (
           <span key={i}>{s}</span>

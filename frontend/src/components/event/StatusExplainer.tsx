@@ -27,7 +27,7 @@ export function StatusExplainer({ d, minBooks }: { d: Divergence; minBooks: numb
       <h3 className="label text-meta font-semibold text-warn">
         Why there are no numbers here
       </h3>
-      <p className="mt-2 max-w-prose text-body text-dim">{reason}</p>
+      <p className="prose mt-2 max-w-prose text-body text-dim">{reason}</p>
       {d.reason ? (
         <p className="mt-2 text-meta text-faint">Engine reason: {d.reason}</p>
       ) : null}

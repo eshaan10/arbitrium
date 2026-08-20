@@ -157,11 +157,19 @@ cannot: `--warn` (a muted rust: thin data, provisional), `--status-ok` (a
 teal-green: the system is alive), and `--series-consensus` (a low-chroma slate,
 the one deliberate cool exception — see below).
 
-**Typography carries the identity as much as the colour.** Mono
-(`.tabular` / `.data` / `.label`) is for anything the system *measured* —
-prices, counts, team identifiers, timestamps, status words, field labels. Sans
-is for anything a person *wrote* — the explanations and caveats. Prose set in
-mono reads slower, and the caveats are the part that must not be skipped.
+**Typography carries the identity as much as the colour, and the split is a
+DEFAULT rather than a per-element choice.** Mono is the body default:
+everything the system measured or named — prices, counts, team names, book
+names, status words, timestamps, section labels, buttons, tabs. Sans is opt-in
+via `.prose`, and only for long-form prose a person wrote: the landing
+explainer, the About and How-it-works body, the sentences explaining what a
+number does not mean.
+
+Making mono the default is what keeps it consistent. An earlier version opted
+*in* to mono per element, so anything overlooked fell back to sans — which is
+how the rail's tile labels ended up sans while the values beneath them were
+mono. Now anything overlooked is mono, which is the intended default, and the
+exceptions are a short enumerable list.
 
 Two deliberate exceptions to the monochrome, both identity rather than signal:
 team logos and the 2px accent bar beneath each one. Those say *which game this
@@ -181,6 +189,28 @@ validated and then hand-tuned twice, with nothing to catch it — the validator
 lived in a scratch file that was never committed. Colour maths is in
 `src/lib/color.ts`, written longhand and shared with nothing the app renders,
 so a bug cannot agree with itself.
+
+## The list defaults to what you can act on
+
+The feed is ~300 events of which ~270 cannot be scored, so **Recommended is the
+landing view**, not All. Nothing is hidden by that: every other view is one chip
+away with its count visible, and an empty Recommended says so plainly — "nothing
+clears the spread right now" is a real answer, not a failure.
+
+Within All, unscoreable events **fold into one disclosure per date group**
+stating the count and the reasons ("14 games can't be scored · 14 one source
+only"). Expanding renders compact rows rather than cards: twelve full cards
+would re-create the problem the fold exists to solve, and none of a card's
+apparatus — price hero, stake simulator, evidence line — has anything to show
+for an event that could not be scored.
+
+This is deliberately not filtering. The standing rule is that an unscoreable
+event is a *result* and must be reported with its reason; a summary that says
+how many there are and why satisfies that, and one click restores every game
+with its own reason attached. The fold is suppressed entirely where it would
+make the app look broken instead of tidy — in the "Can't score" view, while a
+search is active, and in My Teams / My Games. `src/lib/fold.test.ts` pins each
+of those exclusions.
 
 ## Mobile
 

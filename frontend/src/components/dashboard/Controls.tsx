@@ -74,7 +74,7 @@ export function SportTabs({
             disabled={!t.enabled}
             title={t.enabled ? undefined : `${t.label} is not ingested yet`}
             onClick={() => setParam({ sport: t.key })}
-            className={`data tap shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-body transition-colors sm:px-3 ${
+            className={`tap shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-body transition-colors sm:px-3 ${
               isActive
                 ? // Dark on amber. White on this accent fails contrast.
                   "bg-signal font-medium text-bg"
@@ -109,7 +109,7 @@ export function ModeToggle({ mode }: { mode: Mode }) {
           aria-pressed={mode === m}
           onClick={() => setParam({ mode: m === "simple" ? null : m })}
           title={`${m === "simple" ? "Simple" : "Advanced"} detail level`}
-          className={`data tap rounded-[3px] px-2 py-1 text-meta capitalize transition-colors sm:px-3 ${
+          className={`tap rounded-[3px] px-2 py-1 text-meta capitalize transition-colors sm:px-3 ${
             mode === m ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >
@@ -151,9 +151,12 @@ export function ViewFilter({
   favoriteGameCount: number;
 }) {
   const setParam = useSetParam();
+  // Recommended leads because it is the default landing view — the chip order
+  // and the default have to agree, or the highlighted chip appears to be in the
+  // middle of the row for no reason.
   const items: { key: View; label: string }[] = [
-    { key: "all", label: "All" },
     { key: "recommended", label: "Recommended" },
+    { key: "all", label: "All" },
     { key: "arbitrage", label: "Arbitrage" },
     { key: "unscoreable", label: "Can't score" },
   ];
@@ -190,8 +193,8 @@ export function ViewFilter({
         <button
           key={it.key}
           aria-pressed={view === it.key}
-          onClick={() => setParam({ view: it.key === "all" ? null : it.key })}
-          className={`data tap shrink-0 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
+          onClick={() => setParam({ view: it.key === "recommended" ? null : it.key })}
+          className={`tap shrink-0 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
             view === it.key ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >
@@ -209,7 +212,7 @@ export function ViewFilter({
           disabled={p.empty}
           title={p.empty ? p.hint : p.filled}
           onClick={() => setParam({ view: view === p.key ? null : p.key })}
-          className={`data tap flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
+          className={`tap flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
             view === p.key
               ? "bg-raised text-signal"
               : p.empty

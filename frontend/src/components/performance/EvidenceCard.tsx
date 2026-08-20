@@ -28,7 +28,7 @@ export function EvidenceCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-body font-medium text-text">{title}</h3>
-          <p className="mt-1 max-w-prose text-meta leading-relaxed text-muted">{description}</p>
+          <p className="prose mt-1 max-w-prose text-meta leading-relaxed text-muted">{description}</p>
         </div>
         <Badge tone={hasRate ? "signal" : "warn"}>
           {e.n} {e.n === 1 ? "game" : "games"}
@@ -75,7 +75,7 @@ export function EvidenceCard({
         </>
       ) : (
         <div className="mt-3 rounded-md border border-dashed border-border bg-[var(--surface-sunken)] p-3">
-          <p className="text-meta leading-relaxed text-dim">
+          <p className="prose text-meta leading-relaxed text-dim">
             {e.reason ?? "Not enough resolved games to report a rate yet."}
           </p>
           <p className="mt-1.5 text-meta text-faint">

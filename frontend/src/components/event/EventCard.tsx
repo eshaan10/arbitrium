@@ -105,7 +105,7 @@ export function EventCard({
         </div>
       </div>
 
-      <div className="data mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-micro text-faint">
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-micro text-faint">
         {/* Genuinely clock-dependent: the server computes "in 3d" at request
             time and the browser at hydration. Coarse enough that they agree in
             practice, and harmless when they don't — unlike the absolute time
@@ -134,7 +134,7 @@ export function EventCard({
         </div>
       ) : (
         <div className="mt-4">
-          <div className="data text-title text-muted">
+          <div className="text-title text-muted">
             {d.status === "scored" ? "No edge right now" : "Can’t be scored yet"}
           </div>
         </div>
@@ -143,7 +143,7 @@ export function EventCard({
       {/* --- evidence ------------------------------------------------------ */}
       <div className="mt-3">
         {reason ? (
-          <p className="max-w-[58ch] text-meta leading-relaxed text-muted">{reason}</p>
+          <p className="prose max-w-[58ch] text-meta leading-relaxed text-muted">{reason}</p>
         ) : (
           <Evidence d={d} minBooks={minBooks} />
         )}
@@ -171,7 +171,7 @@ export function EventCard({
               rel="noopener noreferrer"
               title="Opens the Kalshi series page for this league"
               onClick={(e) => e.stopPropagation()}
-              className="tap data relative z-20 text-signal-600 hover:text-signal"
+              className="tap relative z-20 text-signal-600 hover:text-signal"
             >
               ↗ Kalshi
             </a>
@@ -179,12 +179,12 @@ export function EventCard({
 
           {d.is_arbitrage && d.arbitrage?.includes_kalshi ? (
             <span className="flex items-center gap-1">
-              <span className="data text-arb">Cross-platform arbitrage</span>
+              <span className="text-arb">Cross-platform arbitrage</span>
               <InfoPopover term="arbitrage" />
             </span>
           ) : null}
 
-          <span className="data ml-auto text-faint transition-colors group-hover:text-muted">
+          <span className="ml-auto text-faint transition-colors group-hover:text-muted">
             Details →
           </span>
         </div>

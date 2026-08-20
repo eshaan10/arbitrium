@@ -30,7 +30,7 @@ export function TierSelector({ tier }: { tier: RiskTier }) {
             params.set("tier", t.key);
             router.replace(`${window.location.pathname}?${params}`, { scroll: false });
           }}
-          className={`data tap rounded-[3px] px-3 py-1.5 text-meta transition-colors ${
+          className={`tap rounded-[3px] px-3 py-1.5 text-meta transition-colors ${
             tier === t.key ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >

@@ -45,13 +45,13 @@ export function BooksTable({ outcomes }: { outcomes: Outcome[] }) {
       <ul className="divide-y divide-border sm:hidden">
         {allBooks.map((b) => (
           <li key={b} className="py-2 first:pt-0 last:pb-0">
-            <div className="data text-meta text-dim">{b}</div>
+            <div className="text-meta text-dim">{b}</div>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
               {rows.map((o) => {
                 const v = o.books![b];
                 return (
                   <span key={o.team} className="flex items-baseline gap-1.5">
-                    <span className="data text-micro text-muted">{o.team}</span>
+                    <span className="text-micro text-muted">{o.team}</span>
                     <span
                       className={`tabular text-meta ${
                         v == null ? "text-faint" : isBest(o, b) ? "text-signal" : "text-text"
@@ -75,7 +75,7 @@ export function BooksTable({ outcomes }: { outcomes: Outcome[] }) {
             <tr className="border-b border-border text-left">
               <th className="label py-2 pr-3 text-micro font-medium text-muted">Book</th>
               {rows.map((o) => (
-                <th key={o.team} className="data py-2 pr-3 font-medium text-dim">
+                <th key={o.team} className="py-2 pr-3 font-medium text-dim">
                   {o.team}
                 </th>
               ))}
@@ -84,7 +84,7 @@ export function BooksTable({ outcomes }: { outcomes: Outcome[] }) {
           <tbody>
             {allBooks.map((b) => (
               <tr key={b} className="border-b border-[var(--surface-raised)]">
-                <td className="data py-1.5 pr-3 text-dim">{b}</td>
+                <td className="py-1.5 pr-3 text-dim">{b}</td>
                 {rows.map((o) => {
                   const v = o.books![b];
                   if (v == null) {

@@ -23,7 +23,7 @@ export function RecentlyViewed() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="data tap shrink-0 rounded-sm border border-border px-2 py-1.5 text-meta text-muted hover:text-dim sm:px-2.5"
+        className="tap shrink-0 rounded-sm border border-border px-2 py-1.5 text-meta text-muted hover:text-dim sm:px-2.5"
       >
         Recent
         <span className="tabular ml-1.5 text-micro text-faint">{recent.length}</span>
@@ -44,7 +44,7 @@ export function RecentlyViewed() {
                   onClick={() => setOpen(false)}
                   className="block rounded-sm px-2.5 py-2 hover:bg-raised"
                 >
-                  <div className="data truncate text-meta text-text">
+                  <div className="truncate text-meta text-text">
                     {away?.short ?? e.away} <span className="text-muted">@</span>{" "}
                     {home?.short ?? e.home}
                   </div>

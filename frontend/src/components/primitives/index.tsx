@@ -73,7 +73,7 @@ export function ConfidenceBars({ bars, label }: { bars: number; label: string })
           />
         ))}
       </span>
-      <span className="data text-micro text-muted">{label} confidence</span>
+      <span className="text-micro text-muted">{label} confidence</span>
     </span>
   );
 }
@@ -108,7 +108,7 @@ export function SectionHeading({ children, note }: { children: ReactNode; note?:
   return (
     <div className="mb-3">
       <h3 className="label text-meta font-semibold text-dim">{children}</h3>
-      {note ? <p className="mt-1 text-meta leading-relaxed text-muted">{note}</p> : null}
+      {note ? <p className="prose mt-1 text-meta leading-relaxed text-muted">{note}</p> : null}
     </div>
   );
 }
@@ -124,11 +124,11 @@ export function EmptyState({
 }) {
   return (
     <div className="rounded-md border border-dashed border-border bg-[var(--surface-sunken)] px-4 py-8 text-center sm:px-6 sm:py-10">
-      <p className={`data text-title font-medium ${tone === "warn" ? "text-warn" : "text-dim"}`}>
+      <p className={`text-title font-medium ${tone === "warn" ? "text-warn" : "text-dim"}`}>
         {title}
       </p>
       {children ? (
-        <div className="mx-auto mt-2 max-w-prose text-body leading-relaxed text-muted">
+        <div className="prose mx-auto mt-2 max-w-prose text-body leading-relaxed text-muted">
           {children}
         </div>
       ) : null}

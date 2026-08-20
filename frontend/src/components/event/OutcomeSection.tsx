@@ -7,7 +7,7 @@ function Row({ label, value, title }: { label: string; value: string; title?: st
     <div title={title} className="flex items-baseline justify-between gap-3 py-1">
       {/* A field name, not a sentence — so it takes the mono stack alongside
           its reading, and the pair lines up as one instrument row. */}
-      <span className="data text-meta text-muted">{label}</span>
+      <span className="text-meta text-muted">{label}</span>
       <span className="tabular text-meta text-text">{value}</span>
     </div>
   );
@@ -32,7 +32,7 @@ export function OutcomeSection({
 
   return (
     <section className="rounded-md border border-border bg-surface p-4">
-      <h3 className="data mb-3 text-body font-medium text-text">{o.team ?? "Outcome"}</h3>
+      <h3 className="mb-3 text-body font-medium text-text">{o.team ?? "Outcome"}</h3>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-md border border-border bg-[var(--surface-sunken)] p-3">

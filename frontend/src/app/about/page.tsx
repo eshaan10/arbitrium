@@ -20,13 +20,13 @@ export default function AboutPage() {
     <div className="max-w-[68ch] space-y-8">
       <div>
         <h1 className="text-lede font-semibold">About</h1>
-        <p className="mt-2 text-body text-dim">
+        <p className="prose mt-2 text-body text-dim">
           Arbitrium is an independent auditor for two sports-pricing systems that never check each
           other&apos;s work.
         </p>
       </div>
 
-      <section className="space-y-3 text-body text-dim">
+      <section className="prose space-y-3 text-body text-dim">
         <h2 className="text-title font-semibold text-text">Why it exists</h2>
         <p>
           Kalshi is a market; a sportsbook is a bookmaker. They price the same games from completely
@@ -53,7 +53,7 @@ export default function AboutPage() {
               <dt className="w-[92px] shrink-0 label text-micro text-muted">
                 {label}
               </dt>
-              <dd className="text-body text-dim">{detail}</dd>
+              <dd className="prose text-body text-dim">{detail}</dd>
             </div>
           ))}
         </dl>
@@ -61,7 +61,7 @@ export default function AboutPage() {
 
       <section className="space-y-2">
         <h2 className="text-title font-semibold text-text">Source</h2>
-        <p className="text-body text-dim">
+        <p className="prose text-body text-dim">
           The code, the schema, and the reasoning behind each decision are on GitHub. The README
           covers the build order and what each phase deliberately left open.
         </p>
@@ -75,7 +75,7 @@ export default function AboutPage() {
         </a>
       </section>
 
-      <p className="border-t border-border pt-5 text-meta leading-relaxed text-faint">
+      <p className="prose border-t border-border pt-5 text-meta leading-relaxed text-faint">
         Not affiliated with Kalshi or any sportsbook. Nothing here is financial advice, and every
         figure is gross of fees and execution risk.{" "}
         <Link href="/how-it-works" className="tap text-muted underline-offset-2 hover:underline">

@@ -94,7 +94,7 @@ function Explain({
           {value}
         </span>
       </div>
-      <p className="mt-1 max-w-prose text-meta leading-relaxed text-muted">{children}</p>
+      <p className="prose mt-1 max-w-prose text-meta leading-relaxed text-muted">{children}</p>
     </div>
   );
 }
@@ -163,7 +163,12 @@ export default async function EventPage({
           <KickoffTime iso={ev.scheduled_start} />
         </div>
         <div className="mt-1 flex items-start gap-3">
-          <h1 className="text-lede font-semibold">
+          {/* `min-w-0` so the flex row can shrink, and wrapping rather than
+              truncation because a page title must stay readable in full. The
+              matchup is set in mono, which is wider than the sans it replaced,
+              and without this a long pairing pushed the page 2px sideways on a
+              375px screen. */}
+          <h1 className="min-w-0 break-words text-lede font-semibold">
             {ev.away_team} <span className="font-normal text-muted">@</span> {ev.home_team}
           </h1>
           {/* Pinning a finished game stores a null call rather than the one it

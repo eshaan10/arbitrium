@@ -45,8 +45,14 @@ export function Toolbar({
   resultCount: number;
   stamp: string;
 }) {
+  // z-30, above the z-20 band that card-internal controls live in.
+  // At z-20 this tied with the stake simulator and the follow/pin buttons, and
+  // a tie is broken by DOM order — the cards come later, so a card's stake line
+  // painted straight over the sticky filter chips as you scrolled. The chrome
+  // needs its own band, above anything inside a card. Full layering:
+  // card overlay 10 · card controls 20 · toolbar 30 · header 40 · popovers 50.
   return (
-    <div className="sticky top-14 z-20 -mx-4 border-b border-border bg-[color-mix(in_srgb,var(--bg)_88%,transparent)] px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 sm:py-3">
+    <div className="sticky top-14 z-30 -mx-4 border-b border-border bg-[color-mix(in_srgb,var(--bg)_96%,transparent)] px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 sm:py-3">
       {/* Search leads on a phone: it is the control that makes a 288-row list
           usable on a small screen, and it is full-width there rather than
           sharing a row. On a wide screen the sport tabs lead instead, because
@@ -80,7 +86,7 @@ export function Toolbar({
             was fetched. The header badge answers the separate question of
             whether ingestion itself is alive. */}
         <span
-          className="data hidden shrink-0 text-micro text-faint sm:ml-auto sm:inline"
+          className="hidden shrink-0 text-micro text-faint sm:ml-auto sm:inline"
           title="When this list was fetched. Prices are polled continuously."
         >
           {stamp}

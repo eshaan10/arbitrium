@@ -6,17 +6,27 @@ import type { DivergencesResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * No `view` param means RECOMMENDED, not All.
+ *
+ * The full feed is ~300 events of which ~270 cannot be scored, so landing on it
+ * meant scrolling past the repetitive majority to reach anything actionable.
+ * The actionable subset is what someone opens this for, so it is what they get
+ * first. Nothing is hidden by this: every other view is one chip away with its
+ * count visible, and an empty Recommended says so plainly rather than looking
+ * broken — "nothing clears the spread right now" is a real answer.
+ */
 function parseView(v: string | string[] | undefined): View {
   // `favorites` predates the follow/favorite split; it meant "teams I care
   // about", so a link shared before the split still lands somewhere true.
   if (v === "favorites") return "my-teams";
-  return v === "recommended" ||
+  return v === "all" ||
     v === "arbitrage" ||
     v === "unscoreable" ||
     v === "my-teams" ||
     v === "my-games"
     ? v
-    : "all";
+    : "recommended";
 }
 
 export default async function Page({

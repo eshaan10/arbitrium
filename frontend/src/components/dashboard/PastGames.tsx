@@ -184,7 +184,7 @@ export function PastGames({ pins }: { pins: PinnedGame[] }) {
           <PastRow key={g.event.event_id} g={g} />
         ))}
       </div>
-      <p className="mt-3 max-w-[64ch] text-micro leading-relaxed text-faint">
+      <p className="prose mt-3 max-w-[64ch] text-micro leading-relaxed text-faint">
         These are the games you pinned, graded against the call that was live when you pinned them.
         They are not a track record — a handful of self-selected games cannot support a hit rate,
         and no rate is computed from them. The{" "}

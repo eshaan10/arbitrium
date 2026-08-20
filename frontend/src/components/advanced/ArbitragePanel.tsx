@@ -25,7 +25,7 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
         Cross-platform opportunity — a separate product
       </h3>
 
-      <p className="mt-2 text-meta leading-relaxed text-dim">
+      <p className="prose mt-2 text-meta leading-relaxed text-dim">
         {a.includes_kalshi ? (
           <>
             Requires a Kalshi account <strong className="text-text">and</strong> an account at{" "}
@@ -39,7 +39,7 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
         )}
       </p>
 
-      <p className="mt-2 max-w-prose text-meta leading-relaxed text-dim">
+      <p className="prose mt-2 max-w-prose text-meta leading-relaxed text-dim">
         Unlike the recommendation above, this covers <em>every</em> outcome, so the payout does not
         depend on who wins. Both legs must fill at these prices, and the figure is gross — before
         fees and execution risk.
@@ -61,18 +61,18 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
           <tbody>
             {a.legs.map((leg, i) => (
               <tr key={`${leg.venue}-${leg.team}-${i}`} className="border-b border-[var(--border)]">
-                <td className="data py-1.5 pr-3 text-dim">
+                <td className="py-1.5 pr-3 text-dim">
                   <span className="sm:hidden">{teamVisual(leg.team)?.short ?? leg.team}</span>
                   <span className="hidden sm:inline">{leg.team}</span>
                 </td>
-                <td className="data py-1.5 pr-3 text-dim">{leg.venue}</td>
+                <td className="py-1.5 pr-3 text-dim">{leg.venue}</td>
                 <td className="tabular py-1.5 text-text">
                   {(leg.implied_price * 100).toFixed(2)}¢
                 </td>
               </tr>
             ))}
             <tr>
-              <td colSpan={2} className="data py-2 pr-3 font-medium text-dim">
+              <td colSpan={2} className="py-2 pr-3 font-medium text-dim">
                 Total for $1 payout
               </td>
               <td className="tabular py-2 font-semibold text-arb">

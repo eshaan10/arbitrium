@@ -60,7 +60,7 @@ function TooltipBody({
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-md border border-border-lit bg-surface px-2.5 py-2 shadow-[var(--shadow-panel)]">
-      <div className="data text-micro text-muted">
+      <div className="text-micro text-muted">
         {new Date(Number(label)).toLocaleString(undefined, {
           month: "short",
           day: "numeric",
@@ -75,7 +75,7 @@ function TooltipBody({
             className="h-2 w-2 rounded-full"
             style={{ background: p.dataKey === "kalshi" ? KALSHI : CONSENSUS }}
           />
-          <span className="data text-meta text-dim">
+          <span className="text-meta text-dim">
             {p.dataKey === "kalshi" ? "Kalshi" : "Consensus"}
           </span>
           <span className="tabular ml-auto text-meta text-text">
@@ -108,7 +108,7 @@ export function PriceHistory({
 
   if (recorded < 2) {
     return (
-      <p className="text-meta leading-relaxed text-muted">
+      <p className="prose text-meta leading-relaxed text-muted">
         {recorded === 1
           ? "One observation recorded — the price has not moved since. Only genuine price changes are stored, so a short series means a quiet market, not missing data."
           : "No price history recorded yet for this outcome."}
@@ -133,7 +133,7 @@ export function PriceHistory({
                 className="h-[2px] w-4"
                 style={{ background: s.color }}
               />
-              <span className="data text-micro text-muted">
+              <span className="text-micro text-muted">
                 {s.label}
                 <span className="text-faint">
                   {" "}

@@ -56,7 +56,7 @@ function Side({
           is the full team name, so it never actually truncates — it just makes
           its parent wider. */}
       <span
-        className={`data min-w-0 truncate text-title ${
+        className={`min-w-0 truncate text-title ${
           strong ? "font-medium text-text" : "text-dim"
         }`}
       >

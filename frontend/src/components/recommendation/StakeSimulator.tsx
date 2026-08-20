@@ -36,7 +36,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta">
         {open ? (
           <span className="flex items-baseline gap-1.5">
-            <label htmlFor={`stake-${rec.team}`} className="data text-muted">
+            <label htmlFor={`stake-${rec.team}`} className="text-muted">
               Stake $
             </label>
             {/* `inputMode="numeric"` rather than "decimal": a stake is whole
@@ -85,7 +85,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
           {/* Verbatim from the API. Trimming a trailing "wins" broke the 'no'
               side, whose wins_if reads "<team> loses" — producing "if Las Vegas
               Raiders loses wins". The backend already phrases this correctly. */}
-          <span className="data text-faint">if {rec.wins_if}</span>
+          <span className="text-faint">if {rec.wins_if}</span>
         </span>
 
         <span aria-hidden className="text-faint">
@@ -98,7 +98,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
             format={(n) => `−${money(n)}`}
             className="tabular font-medium text-loss"
           />
-          <span className="data text-faint">if not</span>
+          <span className="text-faint">if not</span>
         </span>
       </div>
 

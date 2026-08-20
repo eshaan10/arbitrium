@@ -33,7 +33,7 @@ export function SearchBar({
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        className="data w-full rounded-sm border border-border bg-surface px-2.5 py-1.5 text-body text-text placeholder:text-faint focus:border-border-lit sm:px-3"
+        className="w-full rounded-sm border border-border bg-surface px-2.5 py-1.5 text-body text-text placeholder:text-faint focus:border-border-lit sm:px-3"
       />
       {value ? (
         <span className="tabular pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-micro text-faint">

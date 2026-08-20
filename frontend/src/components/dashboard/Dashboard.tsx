@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -20,6 +21,7 @@ import {
 import { usePriceFlash } from "@/lib/usePriceDeltas";
 import { useIsClient } from "@/lib/useIsClient";
 import { recSignature } from "@/lib/changes";
+import { shouldFold, splitFoldable } from "@/lib/fold";
 import { EventCard } from "@/components/event/EventCard";
 import { EmptyState } from "@/components/primitives";
 import { type View } from "./Controls";
@@ -28,6 +30,7 @@ import { InterestingNow } from "./InterestingNow";
 import { SinceLastVisit } from "./SinceLastVisit";
 import { LandingExplainer } from "./LandingExplainer";
 import { PastGames } from "./PastGames";
+import { UnscoreableGroup } from "./UnscoreableGroup";
 import type { Mode } from "@/lib/mode";
 import type { Divergence, DivergencesResponse } from "@/lib/types";
 
@@ -160,6 +163,8 @@ export function Dashboard({
     isClient ? dataUpdatedAt || serverNow : serverNow,
   );
 
+  const foldUnscoreable = shouldFold(view, search);
+
   return (
     <div className="space-y-10">
       <LandingExplainer />
@@ -186,29 +191,56 @@ export function Dashboard({
 
         <div className="pt-6">
           {groups.length === 0 ? (
-            <EmptyState title="Nothing here right now">
-              {search
-                ? `No events match "${search}".`
-                : view === "my-teams"
-                  ? "None of the teams you follow have an upcoming game in this feed."
-                  : view === "my-games"
-                    ? "None of your pinned matchups are upcoming. Any that have finished appear below."
-                    : counts.all === 0
-                      ? "No events have been ingested for this filter yet. Far from kickoff, the odds feed carries very few books — this is expected, not a failure."
-                      : "No events match this filter. The other tabs still have data."}
+            <EmptyState
+              title={
+                view === "recommended" && !search ? "Nothing worth acting on" : "Nothing here right now"
+              }
+            >
+              {search ? (
+                `No events match "${search}".`
+              ) : view === "recommended" ? (
+                <>
+                  {/* Recommended is the landing view, so its empty state has to
+                      carry its own weight: this is a genuine reading, not a
+                      failure, and the way out is one click with the number
+                      already on it. */}
+                  No edge currently survives crossing the Kalshi spread. That is a real answer
+                  rather than a gap — roughly half of measured divergences are smaller than the
+                  spread needed to capture them.{" "}
+                  <Link
+                    href="/?view=all"
+                    className="tap text-signal-600 underline-offset-2 hover:underline"
+                  >
+                    Browse all {counts.all} events →
+                  </Link>
+                </>
+              ) : view === "my-teams" ? (
+                "None of the teams you follow have an upcoming game in this feed."
+              ) : view === "my-games" ? (
+                "None of your pinned matchups are upcoming. Any that have finished appear below."
+              ) : counts.all === 0 ? (
+                "No events have been ingested for this filter yet. Far from kickoff, the odds feed carries very few books — this is expected, not a failure."
+              ) : (
+                "No events match this filter. The other tabs still have data."
+              )}
             </EmptyState>
           ) : (
             <div className="space-y-9">
-              {groups.map((group) => (
+              {groups.map((group) => {
+                const [shown, folded] = splitFoldable(group.events, foldUnscoreable);
+                return (
                 <section key={group.key}>
                   <h2 className="rule-label mb-3 flex items-center gap-3 label text-meta font-semibold text-dim">
                     {group.label}
+                    {/* The count stays the GROUP total even when some are
+                        folded away. The fold states its own number; a header
+                        that silently shrank would misreport the feed. */}
                     <span className="tabular text-micro font-normal text-faint">
                       {group.events.length}
                     </span>
                   </h2>
                   <div className="grid gap-3 lg:grid-cols-2">
-                    {group.events.map((d) => (
+                    {shown.map((d) => (
                       <EventCard
                         key={d.event_id}
                         d={d}
@@ -232,8 +264,10 @@ export function Dashboard({
                       />
                     ))}
                   </div>
+                  <UnscoreableGroup events={folded} minBooks={minBooks} />
                 </section>
-              ))}
+                );
+              })}
             </div>
           )}
 

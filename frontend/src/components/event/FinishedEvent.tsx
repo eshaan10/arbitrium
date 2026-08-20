@@ -26,7 +26,7 @@ function Result({ e }: { e: EventRecord }) {
     return (
       <Card className="p-4">
         <div className="text-headline text-warn">No result recorded</div>
-        <p className="mt-1.5 max-w-prose text-meta leading-relaxed text-muted">
+        <p className="prose mt-1.5 max-w-prose text-meta leading-relaxed text-muted">
           The scoreboard window closed before this outcome could be collected (
           {e.unresolvable_reason}). The scores feed only reaches back three days, so this result is
           gone permanently — it is recorded as unknown rather than guessed at.
@@ -39,7 +39,7 @@ function Result({ e }: { e: EventRecord }) {
     return (
       <Card className="p-4">
         <div className="text-headline text-muted">Under way</div>
-        <p className="mt-1.5 max-w-prose text-meta leading-relaxed text-muted">
+        <p className="prose mt-1.5 max-w-prose text-meta leading-relaxed text-muted">
           This game has started, so it is no longer scored — a price mid-game is not something this
           system measures. The result will appear here once it is collected.
         </p>
@@ -129,7 +129,7 @@ export function FinishedEvent({
         {closing && closing.length > 0 ? (
           <ClosingTable closing={closing} />
         ) : (
-          <p className="text-meta leading-relaxed text-muted">
+          <p className="prose text-meta leading-relaxed text-muted">
             No price was recorded for this game before it started, so there is no closing line to
             show.
           </p>
@@ -154,7 +154,7 @@ export function FinishedEvent({
         </div>
       ) : null}
 
-      <p className="max-w-[64ch] text-micro leading-relaxed text-faint">
+      <p className="prose max-w-[64ch] text-micro leading-relaxed text-faint">
         No divergence, edge or recommendation is shown for a finished game. Those numbers describe a
         bet that can still be placed, and re-computing them from stale quotes would produce a
         confident-looking figure for a trade that no longer exists.
