@@ -40,13 +40,28 @@ describe("date grouping", () => {
   });
 
   it("puts a later-today kickoff in 'today'", () => {
-    // Same calendar day in the runner's timezone, an hour after `now`.
-    const later = new Date(NOW + 60 * 60 * 1000);
-    const end = new Date(NOW);
-    end.setHours(23, 59, 59, 999);
-    if (later.getTime() <= end.getTime()) {
-      expect(groupFor(later.toISOString(), NOW)).toBe("today");
-    }
+    // Unconditional now that the zone is explicit. This assertion used to be
+    // wrapped in an `if` that skipped it whenever the runner's timezone pushed
+    // the instant past local midnight — which is exactly the bug that later
+    // shipped: the boundary moved with the runtime.
+    expect(groupFor("2026-08-10T23:00:00Z", NOW, "UTC")).toBe("today");
+  });
+
+  it("is stable across timezones, because grouping decides DOM structure", () => {
+    // A late-evening ET kickoff. The server runs in UTC and the browser in the
+    // reader's zone; if the boundary moved with the runtime, these would
+    // disagree and React would throw a hydration error and rebuild the tree.
+    const evening = "2026-08-13T02:30:00Z"; // 10:30pm ET on the 12th
+    const zones = ["UTC", "America/New_York", "America/Los_Angeles", "Australia/Sydney"];
+    const grouped = zones.map(() => groupFor(evening, NOW));
+    expect(new Set(grouped).size).toBe(1);
+  });
+
+  it("counts the week from calendar days, not from a rolling 168 hours", () => {
+    // NOW is 2026-08-10, so the 17th is exactly seven days out and the 18th
+    // is one past the edge.
+    expect(groupFor("2026-08-17T23:00:00Z", NOW, "UTC")).toBe("week");
+    expect(groupFor("2026-08-18T23:00:00Z", NOW, "UTC")).toBe("later");
   });
 
   it("puts a kickoff inside seven days in 'week', and beyond it in 'later'", () => {

@@ -59,7 +59,11 @@ export function SportTabs({
   ];
 
   return (
-    <div role="tablist" aria-label="Sport" className="flex flex-wrap items-center gap-1">
+    <div
+      role="tablist"
+      aria-label="Sport"
+      className="scroll-x -mx-4 flex items-center gap-1 px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+    >
       {tabs.map((t) => {
         const isActive = (t.key ?? null) === (active ?? null);
         return (
@@ -70,16 +74,19 @@ export function SportTabs({
             disabled={!t.enabled}
             title={t.enabled ? undefined : `${t.label} is not ingested yet`}
             onClick={() => setParam({ sport: t.key })}
-            className={`rounded-full px-3 py-1.5 text-body transition-colors ${
+            className={`data tap shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-body transition-colors sm:px-3 ${
               isActive
-                ? "bg-signal text-white"
+                ? // Dark on amber. White on this accent fails contrast.
+                  "bg-signal font-medium text-bg"
                 : t.enabled
                   ? "text-dim hover:bg-raised hover:text-text"
                   : "cursor-not-allowed text-faint"
             }`}
           >
             {t.label}
-            {!t.enabled ? <span className="ml-1.5 text-micro">not ingested</span> : null}
+            {!t.enabled ? (
+              <span className="ml-1.5 hidden text-micro sm:inline">not ingested</span>
+            ) : null}
           </button>
         );
       })}
@@ -92,7 +99,7 @@ export function ModeToggle({ mode }: { mode: Mode }) {
   const setParam = useSetParam();
   return (
     <div
-      className="inline-flex rounded-full border border-border p-0.5"
+      className="inline-flex shrink-0 rounded-sm border border-border p-0.5"
       role="group"
       aria-label="Detail level"
     >
@@ -101,11 +108,15 @@ export function ModeToggle({ mode }: { mode: Mode }) {
           key={m}
           aria-pressed={mode === m}
           onClick={() => setParam({ mode: m === "simple" ? null : m })}
-          className={`rounded-full px-3 py-1 text-meta capitalize transition-colors ${
+          title={`${m === "simple" ? "Simple" : "Advanced"} detail level`}
+          className={`data tap rounded-[3px] px-2 py-1 text-meta capitalize transition-colors sm:px-3 ${
             mode === m ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >
-          {m}
+          {/* One letter on a phone. The pair still reads as a two-state toggle
+              because both states are visible; an icon would not. */}
+          <span className="sm:hidden">{m === "simple" ? "S" : "A"}</span>
+          <span className="hidden sm:inline">{m}</span>
         </button>
       ))}
     </div>
@@ -174,13 +185,13 @@ export function ViewFilter({
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex items-center gap-1 sm:flex-wrap">
       {items.map((it) => (
         <button
           key={it.key}
           aria-pressed={view === it.key}
           onClick={() => setParam({ view: it.key === "all" ? null : it.key })}
-          className={`rounded-md px-2.5 py-1 text-meta transition-colors ${
+          className={`data tap shrink-0 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
             view === it.key ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >
@@ -189,7 +200,7 @@ export function ViewFilter({
         </button>
       ))}
 
-      <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+      <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
 
       {personal.map((p) => (
         <button
@@ -198,7 +209,7 @@ export function ViewFilter({
           disabled={p.empty}
           title={p.empty ? p.hint : p.filled}
           onClick={() => setParam({ view: view === p.key ? null : p.key })}
-          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-meta transition-colors ${
+          className={`data tap flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2 py-1 text-meta transition-colors sm:px-2.5 ${
             view === p.key
               ? "bg-raised text-signal"
               : p.empty

@@ -36,15 +36,20 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta">
         {open ? (
           <span className="flex items-baseline gap-1.5">
-            <label htmlFor={`stake-${rec.team}`} className="text-muted">
+            <label htmlFor={`stake-${rec.team}`} className="data text-muted">
               Stake $
             </label>
+            {/* `inputMode="numeric"` rather than "decimal": a stake is whole
+                dollars here, and the numeric keypad is the one without a
+                decimal point to mis-tap. globals.css raises it to 16px below
+                `sm` so focusing it does not zoom the viewport — which on a
+                card mid-list scrolled the card out from under the reader. */}
             <input
               id={`stake-${rec.team}`}
               type="number"
               min={1}
               step={10}
-              inputMode="decimal"
+              inputMode="numeric"
               autoFocus
               value={stake}
               onChange={(e) => setStake(Math.max(0, Number(e.target.value)))}
@@ -60,7 +65,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
               e.stopPropagation();
               setOpen(true);
             }}
-            className="text-muted underline decoration-dotted underline-offset-2 hover:text-dim"
+            className="tap tabular text-muted underline decoration-dotted underline-offset-2 hover:text-dim"
             title="Change the stake"
           >
             ${stake}
@@ -80,7 +85,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
           {/* Verbatim from the API. Trimming a trailing "wins" broke the 'no'
               side, whose wins_if reads "<team> loses" — producing "if Las Vegas
               Raiders loses wins". The backend already phrases this correctly. */}
-          <span className="text-faint">if {rec.wins_if}</span>
+          <span className="data text-faint">if {rec.wins_if}</span>
         </span>
 
         <span aria-hidden className="text-faint">
@@ -93,7 +98,7 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
             format={(n) => `−${money(n)}`}
             className="tabular font-medium text-loss"
           />
-          <span className="text-faint">if not</span>
+          <span className="data text-faint">if not</span>
         </span>
       </div>
 

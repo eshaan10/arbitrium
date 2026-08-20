@@ -40,7 +40,7 @@ function Slot({
   const body = (
     <>
       <div className="flex items-center gap-1.5">
-        <span className="text-micro uppercase tracking-[0.09em] text-faint">{label}</span>
+        <span className="label text-micro text-faint">{label}</span>
         {info}
       </div>
       {headline ? (
@@ -59,8 +59,11 @@ function Slot({
     </>
   );
 
+  // `min-w-0` so the grid track is the container width rather than this card's
+  // min-CONTENT width — the headline is a long unbroken matchup string, which
+  // otherwise widened the whole page and made it scroll sideways on a phone.
   const className =
-    "block rounded-lg border border-border bg-surface p-4 transition-colors" +
+    "block min-w-0 rounded-md border border-border bg-surface p-3.5 transition-colors sm:p-4" +
     (href ? " hover:border-border-lit" : "");
 
   return href ? (
@@ -94,7 +97,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
 
   return (
     <section>
-      <h2 className="mb-3 flex items-center gap-3 text-meta font-semibold uppercase tracking-[0.09em] text-dim rule-label">
+      <h2 className="mb-3 flex items-center gap-3 label text-meta font-semibold text-dim rule-label">
         Interesting right now
       </h2>
       <div className="grid gap-3 sm:grid-cols-3">

@@ -34,7 +34,7 @@ export function LandingExplainer() {
       </p>
       <p className="mt-2.5 text-meta text-faint">
         Every figure is gross of fees.{" "}
-        <Link href="/how-it-works" className="text-signal-600 hover:text-signal">
+        <Link href="/how-it-works" className="tap text-signal-600 hover:text-signal">
           How this works →
         </Link>
         {ready ? (
@@ -43,7 +43,7 @@ export function LandingExplainer() {
             <button
               type="button"
               onClick={dismiss}
-              className="text-faint underline decoration-dotted underline-offset-2 hover:text-muted"
+              className="tap text-faint underline decoration-dotted underline-offset-2 hover:text-muted"
             >
               Dismiss
             </button>

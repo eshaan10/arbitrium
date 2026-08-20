@@ -47,9 +47,13 @@ export function StatusCluster() {
 
   if (error) {
     return (
-      <span className="flex items-center gap-1.5 text-meta text-warn" title="/health did not respond">
+      <span
+        className="label flex items-center gap-1.5 text-micro text-warn sm:text-meta"
+        title="/health did not respond"
+      >
         <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-[var(--warn)]" />
-        API unreachable
+        <span className="hidden sm:inline">API unreachable</span>
+        <span className="sm:hidden">No API</span>
       </span>
     );
   }
@@ -75,7 +79,7 @@ export function StatusCluster() {
 
   return (
     <span
-      className="group flex items-center gap-2 rounded-full border border-border px-2.5 py-1"
+      className="group flex items-center gap-2 rounded-sm border border-border px-2 py-1 sm:px-2.5"
       title={detail}
     >
       <span className="flex items-center gap-1.5">
@@ -85,7 +89,7 @@ export function StatusCluster() {
           style={{ background: colour }}
         />
         <span
-          className="text-meta"
+          className="label text-micro sm:text-meta"
           style={{ color: summary.tone === "warn" ? "var(--warn)" : "var(--text-dim)" }}
         >
           {summary.label}
@@ -95,7 +99,7 @@ export function StatusCluster() {
       {/* Per-source detail stays visible where there is room; the badge above
           carries the verdict everywhere else. */}
       {data ? (
-        <span className="hidden items-center gap-2 border-l border-border pl-2 text-micro text-faint lg:flex">
+        <span className="label hidden items-center gap-2 border-l border-border pl-2 text-micro text-faint lg:flex">
           {Object.entries(data.ingestion).map(([key, f]) => (
             <span key={key}>
               {LABELS[key] ?? key}{" "}

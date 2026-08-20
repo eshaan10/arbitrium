@@ -16,7 +16,7 @@ export function AdvancedMetrics({ d }: { d: Divergence }) {
   // Three columns at every width: the card sits in a two-up grid, so six
   // columns only fit the viewport, not the container the card actually has.
   return (
-    <div className="grid grid-cols-3 gap-x-4 gap-y-3 rounded-md border border-border bg-[var(--surface-sunken)] p-3">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 rounded-md border border-border bg-[var(--surface-sunken)] p-3">
       <Metric
         label="Divergence"
         value={pct(d.max_abs_divergence)}

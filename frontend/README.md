@@ -143,14 +143,55 @@ Three things on the page are driven by real stored history, not decoration:
   Auto-curated, and a slot with nothing to show says so rather than promoting
   the least-bad option.
 
-## Design system
+## Design system — terminal amber
 
 Tokens live at the top of `src/app/globals.css` and are exposed to Tailwind v4
-through `@theme`. Colour has one governing rule: **crimson means signal, not
-danger** — value and gains are crimson, their absence is a cool slate, and amber
-is reserved for uncertainty.
+through `@theme`. Colour has one governing rule: **amber means signal, not
+decoration** — a recommendation, an arbitrage and a gain are amber; a negative
+metric, a losing leg and an unscoreable event drop to warm grey. An accent that
+appears on good and bad numbers alike stops meaning anything.
 
-The two chart series (`--series-kalshi`, `--series-consensus`) are validated
-against the chart surface for the dark-mode lightness band, chroma floor,
-protan/deutan separation and contrast. Re-run a palette validator before
-changing them; they are not free-choice brand colours.
+Every neutral carries a warm undertone so amber is the only warm thing on the
+page. Three channels sit outside the accent because they make statements amber
+cannot: `--warn` (a muted rust: thin data, provisional), `--status-ok` (a
+teal-green: the system is alive), and `--series-consensus` (a low-chroma slate,
+the one deliberate cool exception — see below).
+
+**Typography carries the identity as much as the colour.** Mono
+(`.tabular` / `.data` / `.label`) is for anything the system *measured* —
+prices, counts, team identifiers, timestamps, status words, field labels. Sans
+is for anything a person *wrote* — the explanations and caveats. Prose set in
+mono reads slower, and the caveats are the part that must not be skipped.
+
+Two deliberate exceptions to the monochrome, both identity rather than signal:
+team logos and the 2px accent bar beneath each one. Those say *which game this
+is*; they are never used to say a number is good.
+
+### The palette is enforced, not documented
+
+`src/lib/palette.test.ts` parses `globals.css` and fails the build on: text
+contrast, the confidence-fade floor still being readable, protan/deutan
+separation of the two chart series, any semantic channel collapsing into the
+accent, and any grey drifting cool. The OpenGraph image duplicates the palette
+by necessity (`ImageResponse` has no stylesheet) and is pinned against the same
+source.
+
+This exists because the previous system's chart colours were *documented* as
+validated and then hand-tuned twice, with nothing to catch it — the validator
+lived in a scratch file that was never committed. Colour maths is in
+`src/lib/color.ts`, written longhand and shared with nothing the app renders,
+so a bug cannot agree with itself.
+
+## Mobile
+
+Real layouts, not shrunk desktop ones. The wide book matrix becomes one block
+per book below `sm`, so a price is never separated from its book name. Charts
+get more height on a phone, not less. Filter chips and sport tabs scroll
+sideways inside their own box rather than wrapping and stealing rows from the
+sticky toolbar.
+
+Touch is treated as an input, not a screen width: `.tap` projects a 44px hit
+area from a small control without resizing it, popovers open on tap and close
+on an outside tap (`pointerdown`, and hover is gated on `pointerType === "mouse"`
+so a synthesised hover cannot latch), and inputs are 16px below `sm` so iOS does
+not zoom the viewport on focus.

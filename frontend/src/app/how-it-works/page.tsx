@@ -121,7 +121,7 @@ export default function HowItWorksPage() {
         <p>
           It will not hide an event it can&apos;t score, quote a win rate before enough games have
           resolved, or present a backtest as a live record. The{" "}
-          <Link href="/performance" className="text-signal-600 hover:text-signal">
+          <Link href="/performance" className="tap text-signal-600 hover:text-signal">
             performance page
           </Link>{" "}
           withholds a number entirely rather than publishing one with a caveat, because a number
@@ -133,7 +133,7 @@ export default function HowItWorksPage() {
       </Section>
 
       <div className="border-t border-border pt-5">
-        <Link href="/" className="text-body text-signal-600 hover:text-signal">
+        <Link href="/" className="tap text-body text-signal-600 hover:text-signal">
           ← Back to the dashboard
         </Link>
       </div>

@@ -46,30 +46,41 @@ export function Toolbar({
   stamp: string;
 }) {
   return (
-    <div className="sticky top-14 z-20 -mx-6 border-b border-border bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] px-6 py-3 backdrop-blur-md">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <SportTabs active={sport} available={sports} />
+    <div className="sticky top-14 z-20 -mx-4 border-b border-border bg-[color-mix(in_srgb,var(--bg)_88%,transparent)] px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 sm:py-3">
+      {/* Search leads on a phone: it is the control that makes a 288-row list
+          usable on a small screen, and it is full-width there rather than
+          sharing a row. On a wide screen the sport tabs lead instead, because
+          the whole list is already in view. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-3">
+        <div className="order-2 sm:order-1">
+          <SportTabs active={sport} available={sports} />
+        </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="order-1 flex items-center gap-2 sm:order-2 sm:ml-auto">
           <SearchBar value={search} onChange={onSearch} resultCount={resultCount} />
           <RecentlyViewed />
           <ModeToggle mode={mode} />
         </div>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <ViewFilter
-          view={view}
-          counts={counts}
-          personalReady={personalReady}
-          followedTeamCount={followedTeamCount}
-          favoriteGameCount={favoriteGameCount}
-        />
+      {/* The view chips scroll sideways on a phone rather than wrapping onto a
+          third line — the toolbar is sticky, so every line it grows is a line
+          permanently taken from the list below it. */}
+      <div className="mt-2 flex items-center gap-x-3 sm:mt-2.5 sm:flex-wrap">
+        <div className="scroll-x -mx-4 min-w-0 flex-1 px-4 sm:mx-0 sm:overflow-visible sm:px-0">
+          <ViewFilter
+            view={view}
+            counts={counts}
+            personalReady={personalReady}
+            followedTeamCount={followedTeamCount}
+            favoriteGameCount={favoriteGameCount}
+          />
+        </div>
         {/* Belongs to the LIST, not to system health: it says when this query
             was fetched. The header badge answers the separate question of
             whether ingestion itself is alive. */}
         <span
-          className="ml-auto text-micro text-faint"
+          className="data hidden shrink-0 text-micro text-faint sm:ml-auto sm:inline"
           title="When this list was fetched. Prices are polled continuously."
         >
           {stamp}

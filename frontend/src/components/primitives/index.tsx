@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 
 /* Small shared pieces. Kept in one file because each is a handful of lines and
-   splitting them would cost more navigation than it saves. */
+   splitting them would cost more navigation than it saves.
+
+   Typography rule applied throughout: a LABEL or a READING is mono (.label /
+   .tabular / .data), a SENTENCE is sans. That split is what carries the
+   terminal identity — the colour alone would just be a reskin. */
 
 export function Card({
   children,
@@ -15,7 +19,7 @@ export function Card({
   return (
     <div
       style={style}
-      className={`rounded-lg border border-border bg-surface shadow-[var(--shadow-card)] ${className}`}
+      className={`rounded-md border border-border bg-surface shadow-[var(--shadow-card)] ${className}`}
     >
       {children}
     </div>
@@ -27,7 +31,7 @@ type Tone = "neutral" | "signal" | "warn" | "arb" | "muted";
 const TONES: Record<Tone, string> = {
   neutral: "border-border-lit text-dim",
   signal: "border-signal-800 text-signal-600 bg-[var(--signal-950)]",
-  warn: "border-[color-mix(in_srgb,var(--warn)_40%,transparent)] text-warn",
+  warn: "border-[color-mix(in_srgb,var(--warn)_45%,transparent)] text-warn",
   arb: "border-arb text-arb bg-[var(--arb-glow)]",
   muted: "border-border text-muted",
 };
@@ -44,7 +48,7 @@ export function Badge({
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-micro font-medium leading-none tracking-[0.01em] ${TONES[tone]}`}
+      className={`label inline-flex items-center gap-1 rounded-sm border px-1.5 py-[3px] text-micro leading-none ${TONES[tone]}`}
     >
       {children}
     </span>
@@ -65,11 +69,11 @@ export function ConfidenceBars({ bars, label }: { bars: number; label: string })
           <i
             key={i}
             style={{ height: `${4 + i * 2}px` }}
-            className={`w-[3px] rounded-[1px] ${i <= bars ? "bg-signal" : "bg-[var(--border-lit)]"}`}
+            className={`w-[3px] ${i <= bars ? "bg-signal" : "bg-[var(--border-lit)]"}`}
           />
         ))}
       </span>
-      <span className="text-micro text-muted">{label} confidence</span>
+      <span className="data text-micro text-muted">{label} confidence</span>
     </span>
   );
 }
@@ -88,7 +92,7 @@ export function Metric({
   const missing = value === "—";
   return (
     <div title={title} className="min-w-0">
-      <div className="text-micro uppercase tracking-[0.07em] text-muted">{label}</div>
+      <div className="label text-micro text-muted">{label}</div>
       <div
         className={`tabular mt-[3px] text-body ${
           missing ? "text-faint" : negative ? "text-neg" : "text-text"
@@ -103,7 +107,7 @@ export function Metric({
 export function SectionHeading({ children, note }: { children: ReactNode; note?: string }) {
   return (
     <div className="mb-3">
-      <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-dim">{children}</h3>
+      <h3 className="label text-meta font-semibold text-dim">{children}</h3>
       {note ? <p className="mt-1 text-meta leading-relaxed text-muted">{note}</p> : null}
     </div>
   );
@@ -119,8 +123,8 @@ export function EmptyState({
   tone?: "neutral" | "warn";
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-[var(--surface-sunken)] px-6 py-10 text-center">
-      <p className={`text-title font-medium ${tone === "warn" ? "text-warn" : "text-dim"}`}>
+    <div className="rounded-md border border-dashed border-border bg-[var(--surface-sunken)] px-4 py-8 text-center sm:px-6 sm:py-10">
+      <p className={`data text-title font-medium ${tone === "warn" ? "text-warn" : "text-dim"}`}>
         {title}
       </p>
       {children ? (
@@ -133,9 +137,5 @@ export function EmptyState({
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded-sm bg-[var(--surface-raised)] ${className}`}
-    />
-  );
+  return <div className={`animate-pulse rounded-sm bg-[var(--surface-raised)] ${className}`} />;
 }

@@ -39,7 +39,7 @@ export function RecommendationLine({
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <span className="flex items-baseline gap-2">
-        <span className="rounded-sm bg-[var(--signal-950)] px-1.5 py-0.5 text-meta font-semibold uppercase tracking-[0.04em] text-signal-600">
+        <span className="rounded-sm bg-[var(--signal-950)] px-1.5 py-0.5 label text-meta font-semibold text-signal-600">
           Buy {r.side}
         </span>
         <span className="text-title font-medium text-text">{r.team}</span>

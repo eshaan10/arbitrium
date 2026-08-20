@@ -201,7 +201,7 @@ export function Dashboard({
             <div className="space-y-9">
               {groups.map((group) => (
                 <section key={group.key}>
-                  <h2 className="rule-label mb-3 flex items-center gap-3 text-meta font-semibold uppercase tracking-[0.09em] text-dim">
+                  <h2 className="rule-label mb-3 flex items-center gap-3 label text-meta font-semibold text-dim">
                     {group.label}
                     <span className="tabular text-micro font-normal text-faint">
                       {group.events.length}

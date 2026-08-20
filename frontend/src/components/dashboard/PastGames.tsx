@@ -119,7 +119,7 @@ function PastRow({ g }: { g: Graded }) {
   return (
     <Link
       href={`/events/${g.event.event_id}`}
-      className="block rounded-lg border border-border bg-surface p-3.5 transition-colors hover:border-border-lit"
+      className="block rounded-md border border-border bg-surface p-3.5 transition-colors hover:border-border-lit"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="text-title font-medium text-text">
@@ -128,7 +128,7 @@ function PastRow({ g }: { g: Graded }) {
         <span className="flex items-center gap-2">
           {score ? <span className="tabular text-meta text-dim">{score}</span> : null}
           <span
-            className="rounded-full border px-2 py-[2px] text-micro"
+            className="label rounded-sm border px-1.5 py-[2px] text-micro"
             style={{ color: style.color, borderColor: style.color }}
           >
             {style.label}
@@ -175,7 +175,7 @@ export function PastGames({ pins }: { pins: PinnedGame[] }) {
 
   return (
     <section>
-      <h2 className="rule-label mb-3 flex items-center gap-3 text-meta font-semibold uppercase tracking-[0.09em] text-dim">
+      <h2 className="rule-label mb-3 flex items-center gap-3 label text-meta font-semibold text-dim">
         Finished
         <span className="tabular text-micro font-normal text-faint">{graded.length}</span>
       </h2>

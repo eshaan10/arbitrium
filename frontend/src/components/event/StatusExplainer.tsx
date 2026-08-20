@@ -24,7 +24,7 @@ export function StatusExplainer({ d, minBooks }: { d: Divergence; minBooks: numb
 
   return (
     <div className="rounded-md border border-border bg-[var(--surface-sunken)] p-4">
-      <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-warn">
+      <h3 className="label text-meta font-semibold text-warn">
         Why there are no numbers here
       </h3>
       <p className="mt-2 max-w-prose text-body text-dim">{reason}</p>

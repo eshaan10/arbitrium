@@ -37,7 +37,7 @@ export default async function CombosPage({
 
       {/* The optimizer is Phase 4 and has no endpoint yet. Saying so plainly
           beats a spinner that never resolves or a demo that reads as live. */}
-      <div className="rounded-lg border border-warn/40 bg-[color-mix(in_srgb,var(--warn)_8%,transparent)] p-4">
+      <div className="rounded-md border border-warn/40 bg-[color-mix(in_srgb,var(--warn)_8%,transparent)] p-4">
         <h2 className="text-body font-medium text-warn">Not live yet</h2>
         <p className="mt-1.5 max-w-prose text-meta leading-relaxed text-dim">
           The combo optimizer ships in Phase 4. There is no <code>/combos</code> endpoint to call
@@ -63,7 +63,7 @@ export default async function CombosPage({
       </div>
 
       <Card className="p-4">
-        <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-dim">
+        <h3 className="label text-meta font-semibold text-dim">
           What every combo will have to state
         </h3>
         <ul className="mt-2.5 space-y-2 text-meta leading-relaxed text-muted">

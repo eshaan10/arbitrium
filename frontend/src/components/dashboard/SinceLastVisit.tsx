@@ -23,9 +23,9 @@ export function SinceLastVisit({ events }: { events: Divergence[] }) {
   return (
     <section
       aria-label="Changes since your last visit"
-      className="rounded-lg border border-signal-800 bg-[var(--signal-950)] p-3.5"
+      className="rounded-md border border-signal-800 bg-[var(--signal-950)] p-3.5"
     >
-      <h2 className="text-micro font-semibold uppercase tracking-[0.07em] text-signal-600">
+      <h2 className="label text-micro font-semibold text-signal-600">
         Since you last looked
       </h2>
       <ul className="mt-2 space-y-1.5">

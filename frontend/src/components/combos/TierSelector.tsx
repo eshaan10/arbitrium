@@ -20,7 +20,7 @@ export function TierSelector({ tier }: { tier: RiskTier }) {
   const router = useRouter();
 
   return (
-    <div className="inline-flex rounded-full border border-border p-0.5" role="group">
+    <div className="inline-flex rounded-sm border border-border p-0.5" role="group">
       {TIERS.map((t) => (
         <button
           key={t.key}
@@ -30,7 +30,7 @@ export function TierSelector({ tier }: { tier: RiskTier }) {
             params.set("tier", t.key);
             router.replace(`${window.location.pathname}?${params}`, { scroll: false });
           }}
-          className={`rounded-full px-3.5 py-1.5 text-meta transition-colors ${
+          className={`data tap rounded-[3px] px-3 py-1.5 text-meta transition-colors ${
             tier === t.key ? "bg-raised text-text" : "text-muted hover:text-dim"
           }`}
         >

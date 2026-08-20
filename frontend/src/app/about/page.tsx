@@ -50,7 +50,7 @@ export default function AboutPage() {
         <dl className="mt-2 space-y-2">
           {STACK.map(([label, detail]) => (
             <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
-              <dt className="w-[92px] shrink-0 text-micro uppercase tracking-[0.06em] text-muted">
+              <dt className="w-[92px] shrink-0 label text-micro text-muted">
                 {label}
               </dt>
               <dd className="text-body text-dim">{detail}</dd>
@@ -69,7 +69,7 @@ export default function AboutPage() {
           href={REPO}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block text-body text-signal-600 hover:text-signal"
+          className="tap inline-block text-body text-signal-600 hover:text-signal"
         >
           ↗ github.com/eshaan10/Arbitrium
         </a>
@@ -78,7 +78,7 @@ export default function AboutPage() {
       <p className="border-t border-border pt-5 text-meta leading-relaxed text-faint">
         Not affiliated with Kalshi or any sportsbook. Nothing here is financial advice, and every
         figure is gross of fees and execution risk.{" "}
-        <Link href="/how-it-works" className="text-muted underline-offset-2 hover:underline">
+        <Link href="/how-it-works" className="tap text-muted underline-offset-2 hover:underline">
           How it works
         </Link>
       </p>

@@ -5,7 +5,9 @@ import type { EventHistory, Outcome } from "@/lib/types";
 function Row({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div title={title} className="flex items-baseline justify-between gap-3 py-1">
-      <span className="text-meta text-muted">{label}</span>
+      {/* A field name, not a sentence — so it takes the mono stack alongside
+          its reading, and the pair lines up as one instrument row. */}
+      <span className="data text-meta text-muted">{label}</span>
       <span className="tabular text-meta text-text">{value}</span>
     </div>
   );
@@ -29,18 +31,18 @@ export function OutcomeSection({
   const o = outcome;
 
   return (
-    <section className="rounded-lg border border-border bg-surface p-4">
-      <h3 className="mb-3 text-body font-medium text-text">{o.team ?? "Outcome"}</h3>
+    <section className="rounded-md border border-border bg-surface p-4">
+      <h3 className="data mb-3 text-body font-medium text-text">{o.team ?? "Outcome"}</h3>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-md border border-border bg-[var(--surface-sunken)] p-3">
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               aria-hidden
-              className="h-[2px] w-4 rounded-full"
+              className="h-[2px] w-4"
               style={{ background: "var(--series-kalshi)" }}
             />
-            <span className="text-micro uppercase tracking-[0.06em] text-muted">Kalshi</span>
+            <span className="label text-micro text-muted">Kalshi</span>
           </div>
           <Row label="Implied" value={pct(o.kalshi_probability)} />
           {o.kalshi_ask != null ? (
@@ -65,10 +67,10 @@ export function OutcomeSection({
           <div className="mb-1.5 flex items-center gap-1.5">
             <span
               aria-hidden
-              className="h-[2px] w-4 rounded-full"
+              className="h-[2px] w-4"
               style={{ background: "var(--series-consensus)" }}
             />
-            <span className="text-micro uppercase tracking-[0.06em] text-muted">
+            <span className="label text-micro text-muted">
               Sportsbook consensus
             </span>
           </div>

@@ -33,7 +33,7 @@ function ClvBlock({ data }: { data: PerformanceResponse["closing_line_value"] })
           ) : (
             <div className="mt-3 flex flex-wrap gap-6">
               <div>
-                <div className="text-micro uppercase tracking-[0.07em] text-muted">Mean CLV</div>
+                <div className="label text-micro text-muted">Mean CLV</div>
                 <div
                   className={`tabular mt-1 text-display font-semibold ${
                     (clv.mean_clv ?? 0) < 0 ? "text-neg" : "text-gain"
@@ -43,7 +43,7 @@ function ClvBlock({ data }: { data: PerformanceResponse["closing_line_value"] })
                 </div>
               </div>
               <div>
-                <div className="text-micro uppercase tracking-[0.07em] text-muted">
+                <div className="label text-micro text-muted">
                   Beat the close
                 </div>
                 <div className="tabular mt-1 text-display text-text">

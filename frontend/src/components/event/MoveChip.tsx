@@ -14,7 +14,7 @@ export function MoveChip({ move, hours = 24 }: { move: NetMove; hours?: number }
 
   return (
     <span
-      className="tabular inline-flex items-center gap-1 rounded-full border border-border px-1.5 py-[2px] text-micro"
+      className="tabular inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-[2px] text-micro"
       style={{ color: up ? "var(--gain)" : "var(--loss)" }}
       title={
         `${short} moved ${up ? "up" : "down"} ${formatCentsDelta(move.delta)}¢ on Kalshi over the ` +

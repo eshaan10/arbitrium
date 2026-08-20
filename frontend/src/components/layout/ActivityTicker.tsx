@@ -22,7 +22,7 @@ function ChangeItem({ c }: { c: ActivityChange }) {
   return (
     <Link
       href={`/events/${c.event_id}`}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 hover:bg-raised"
+      className="tap inline-flex shrink-0 items-center gap-1.5 rounded-sm px-2 py-1 hover:bg-raised"
     >
       <span className="text-meta text-dim">{visual?.short ?? c.team}</span>
       <span className="tabular text-meta text-muted">
@@ -77,7 +77,7 @@ export function ActivityTicker() {
   return (
     <div className="border-t border-border bg-[var(--surface-sunken)]">
       <div className="mx-auto flex max-w-[1160px] items-center gap-3 px-6 py-2.5">
-        <span className="shrink-0 text-micro uppercase tracking-[0.07em] text-faint">
+        <span className="shrink-0 label text-micro text-faint">
           Live · 24h
         </span>
 
@@ -87,7 +87,7 @@ export function ActivityTicker() {
               key={`${a.eventId}-${a.at}`}
               href={`/events/${a.eventId}`}
               title="Detected in this session — arbitrage is computed live and is not stored historically."
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-arb px-2 py-1 hover:bg-raised"
+              className="tap inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-arb px-2 py-1 hover:bg-raised"
             >
               <span className="text-meta text-arb">Arbitrage appeared</span>
               <span className="text-micro text-dim">{a.label}</span>

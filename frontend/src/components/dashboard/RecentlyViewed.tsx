@@ -23,7 +23,7 @@ export function RecentlyViewed() {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="rounded-md border border-border px-2.5 py-1.5 text-meta text-muted hover:text-dim"
+        className="data tap shrink-0 rounded-sm border border-border px-2 py-1.5 text-meta text-muted hover:text-dim sm:px-2.5"
       >
         Recent
         <span className="tabular ml-1.5 text-micro text-faint">{recent.length}</span>
@@ -33,7 +33,7 @@ export function RecentlyViewed() {
         <>
           {/* Click-away target. */}
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 z-30 mt-1.5 w-[280px] rounded-lg border border-border-lit bg-surface p-1.5 shadow-[var(--shadow-panel)]">
+          <div className="absolute right-0 z-30 mt-1.5 w-[min(280px,calc(100vw-2rem))] rounded-md border border-border-lit bg-surface p-1.5 shadow-[var(--shadow-panel)]">
             {recent.map((e) => {
               const away = teamVisual(e.away);
               const home = teamVisual(e.home);
@@ -42,13 +42,13 @@ export function RecentlyViewed() {
                   key={e.id}
                   href={`/events/${e.id}`}
                   onClick={() => setOpen(false)}
-                  className="block rounded-md px-2.5 py-2 hover:bg-raised"
+                  className="block rounded-sm px-2.5 py-2 hover:bg-raised"
                 >
-                  <div className="truncate text-meta text-text">
+                  <div className="data truncate text-meta text-text">
                     {away?.short ?? e.away} <span className="text-muted">@</span>{" "}
                     {home?.short ?? e.home}
                   </div>
-                  <div className="text-micro uppercase tracking-[0.06em] text-faint">
+                  <div className="label text-micro text-faint">
                     {e.sport ?? ""}
                   </div>
                 </Link>
@@ -60,7 +60,7 @@ export function RecentlyViewed() {
                 clear();
                 setOpen(false);
               }}
-              className="mt-1 w-full rounded-md px-2.5 py-1.5 text-left text-meta text-faint hover:bg-raised hover:text-muted"
+              className="tap mt-1 w-full rounded-sm px-2.5 py-1.5 text-left text-meta text-faint hover:bg-raised hover:text-muted"
             >
               Clear history
             </button>

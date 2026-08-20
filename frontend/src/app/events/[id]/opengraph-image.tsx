@@ -18,6 +18,25 @@ export const alt = "Arbitrium event";
  * Rendered from live data at request time. If the API is unreachable the image
  * degrades to the wordmark instead of failing the whole share.
  */
+/**
+ * The palette, duplicated.
+ *
+ * `ImageResponse` renders in a satori sandbox with no stylesheet and no CSS
+ * custom properties, so these cannot reference globals.css — they are the one
+ * place in the app where a colour is written twice. Named rather than inlined
+ * so the duplication is obvious, and pinned by a test that compares them back
+ * against the stylesheet.
+ */
+export const PALETTE = {
+  bg: "#0b0a09",
+  text: "#f2ede4",
+  dim: "#b3aa9c",
+  muted: "#868075",
+  faint: "#55504a",
+  border: "#2a2521",
+  signal: "#f2c14e",
+} as const;
+
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -68,16 +87,16 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          background: "#0a0b0d",
+          background: PALETTE.bg,
           padding: 64,
-          fontFamily: "sans-serif",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", fontSize: 26, color: "#6d747f", letterSpacing: 1 }}>
+          <div style={{ display: "flex", fontSize: 26, color: PALETTE.muted, letterSpacing: 2 }}>
             {(event?.sport ?? "").toUpperCase() || "ARBITRIUM"}
           </div>
-          <div style={{ display: "flex", fontSize: 46, color: "#eceef1", fontWeight: 600 }}>
+          <div style={{ display: "flex", fontSize: 46, color: PALETTE.text, fontWeight: 600 }}>
             {away && home ? `${away} @ ${home}` : "Arbitrium"}
           </div>
         </div>
@@ -89,18 +108,18 @@ export default async function Image({ params }: { params: Promise<{ id: string }
                 display: "flex",
                 fontSize: 62,
                 fontWeight: 700,
-                color: rec ? "#e33d5c" : "#a2a9b4",
+                color: rec ? PALETTE.signal : PALETTE.dim,
               }}
             >
               {headline}
             </div>
             {price ? (
-              <div style={{ display: "flex", fontSize: 62, fontWeight: 700, color: "#eceef1" }}>
+              <div style={{ display: "flex", fontSize: 62, fontWeight: 700, color: PALETTE.text }}>
                 {price}
               </div>
             ) : null}
           </div>
-          <div style={{ display: "flex", fontSize: 26, color: "#a2a9b4", maxWidth: 1000 }}>
+          <div style={{ display: "flex", fontSize: 26, color: PALETTE.dim, maxWidth: 1000 }}>
             {sub}
           </div>
         </div>
@@ -110,14 +129,14 @@ export default async function Image({ params }: { params: Promise<{ id: string }
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            borderTop: "1px solid #23272e",
+            borderTop: `1px solid ${PALETTE.border}`,
             paddingTop: 24,
           }}
         >
-          <div style={{ display: "flex", fontSize: 28, color: "#eceef1", fontWeight: 600 }}>
-            Arbi<span style={{ color: "#e33d5c" }}>trium</span>
+          <div style={{ display: "flex", fontSize: 28, color: PALETTE.signal, fontWeight: 700 }}>
+            ARBITRIUM
           </div>
-          <div style={{ display: "flex", fontSize: 22, color: "#4b515a" }}>
+          <div style={{ display: "flex", fontSize: 22, color: PALETTE.faint }}>
             Kalshi vs sportsbook consensus · gross of fees
           </div>
         </div>

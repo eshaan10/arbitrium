@@ -1,4 +1,5 @@
 import { money } from "@/lib/format";
+import { teamVisual } from "@/lib/teams";
 import type { Divergence } from "@/lib/types";
 
 /**
@@ -19,8 +20,8 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
   const profit = a.total_cost > 0 ? stake * (1 / a.total_cost - 1) : 0;
 
   return (
-    <section className="rounded-lg border border-arb bg-[var(--arb-glow)] p-4">
-      <h3 className="text-meta font-semibold uppercase tracking-[0.08em] text-arb">
+    <section className="rounded-md border border-arb bg-[var(--arb-glow)] p-3.5 sm:p-4">
+      <h3 className="label text-meta font-semibold text-arb">
         Cross-platform opportunity — a separate product
       </h3>
 
@@ -44,30 +45,37 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
         fees and execution risk.
       </p>
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[360px] border-collapse text-meta">
+      {/* Three narrow columns, so this one genuinely does fit a phone — the
+          team name is abbreviated below `sm` rather than the table being
+          scrolled, because the outcome is the column you cannot afford to push
+          off-screen. No min-width: it would create a scroll that isn't needed. */}
+      <div className="scroll-x mt-3">
+        <table className="w-full border-collapse text-meta">
           <thead>
             <tr className="border-b border-[color-mix(in_srgb,var(--arb)_30%,transparent)] text-left">
-              <th className="py-2 pr-3 font-medium text-muted">Outcome</th>
-              <th className="py-2 pr-3 font-medium text-muted">Venue</th>
-              <th className="py-2 pr-3 font-medium text-muted">Cost</th>
+              <th className="label py-2 pr-3 text-micro font-medium text-muted">Outcome</th>
+              <th className="label py-2 pr-3 text-micro font-medium text-muted">Venue</th>
+              <th className="label py-2 text-micro font-medium text-muted">Cost</th>
             </tr>
           </thead>
           <tbody>
             {a.legs.map((leg, i) => (
               <tr key={`${leg.venue}-${leg.team}-${i}`} className="border-b border-[var(--border)]">
-                <td className="py-1.5 pr-3 text-dim">{leg.team}</td>
-                <td className="py-1.5 pr-3 text-dim">{leg.venue}</td>
-                <td className="tabular py-1.5 pr-3 text-text">
+                <td className="data py-1.5 pr-3 text-dim">
+                  <span className="sm:hidden">{teamVisual(leg.team)?.short ?? leg.team}</span>
+                  <span className="hidden sm:inline">{leg.team}</span>
+                </td>
+                <td className="data py-1.5 pr-3 text-dim">{leg.venue}</td>
+                <td className="tabular py-1.5 text-text">
                   {(leg.implied_price * 100).toFixed(2)}¢
                 </td>
               </tr>
             ))}
             <tr>
-              <td colSpan={2} className="py-2 pr-3 font-medium text-dim">
+              <td colSpan={2} className="data py-2 pr-3 font-medium text-dim">
                 Total for $1 payout
               </td>
-              <td className="tabular py-2 pr-3 font-semibold text-arb">
+              <td className="tabular py-2 font-semibold text-arb">
                 {(a.total_cost * 100).toFixed(2)}¢
               </td>
             </tr>

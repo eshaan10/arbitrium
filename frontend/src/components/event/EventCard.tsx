@@ -60,7 +60,13 @@ export function EventCard({
     <article
       data-event-id={d.event_id}
       style={{ opacity: opacityOf(d) }}
-      className={`relative flex flex-col rounded-lg border bg-surface p-4 transition-[opacity,border-color] hover:border-border-lit focus-within:border-border-lit ${
+      // `min-w-0` is load-bearing, not tidiness: a grid item defaults to
+      // min-width:auto, so the card's min-CONTENT width sets the track width.
+      // A long team name therefore pushed the whole single-column grid past
+      // the viewport and the entire page scrolled sideways on a phone — the
+      // card looked innocent because it was merely filling the track it had
+      // been given.
+      className={`relative flex min-w-0 flex-col rounded-md border bg-surface p-3.5 transition-[opacity,border-color] hover:border-border-lit focus-within:border-border-lit sm:p-4 ${
         r ? "card-actionable border-[var(--border-lit)]" : "border-border"
       } ${isFavoriteGame ? "card-pinned" : ""}`}
     >
@@ -72,11 +78,11 @@ export function EventCard({
         href={`/events/${d.event_id}`}
         onClick={() => onOpen(d)}
         aria-label={`${d.away_team} at ${d.home_team} — full detail`}
-        className="absolute inset-0 z-10 rounded-lg"
+        className="absolute inset-0 z-10 rounded-md"
       />
 
       {/* --- identity ------------------------------------------------------ */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
         <Matchup
           home={d.home_team}
           away={d.away_team}
@@ -99,7 +105,7 @@ export function EventCard({
         </div>
       </div>
 
-      <div className="mt-1 flex items-center gap-2 text-micro text-faint">
+      <div className="data mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-micro text-faint">
         {/* Genuinely clock-dependent: the server computes "in 3d" at request
             time and the browser at hydration. Coarse enough that they agree in
             practice, and harmless when they don't — unlike the absolute time
@@ -114,7 +120,7 @@ export function EventCard({
       {/* --- hero ---------------------------------------------------------- */}
       {r ? (
         <div className="mt-4">
-          <div className="text-micro uppercase tracking-[0.08em] text-signal-600">
+          <div className="label text-micro text-signal-600">
             Buy {r.side} · {r.team}
           </div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -128,7 +134,7 @@ export function EventCard({
         </div>
       ) : (
         <div className="mt-4">
-          <div className="text-title text-muted">
+          <div className="data text-title text-muted">
             {d.status === "scored" ? "No edge right now" : "Can’t be scored yet"}
           </div>
         </div>
@@ -165,7 +171,7 @@ export function EventCard({
               rel="noopener noreferrer"
               title="Opens the Kalshi series page for this league"
               onClick={(e) => e.stopPropagation()}
-              className="relative z-20 text-signal-600 hover:text-signal"
+              className="tap data relative z-20 text-signal-600 hover:text-signal"
             >
               ↗ Kalshi
             </a>
@@ -173,12 +179,12 @@ export function EventCard({
 
           {d.is_arbitrage && d.arbitrage?.includes_kalshi ? (
             <span className="flex items-center gap-1">
-              <span className="text-arb">Cross-platform arbitrage</span>
+              <span className="data text-arb">Cross-platform arbitrage</span>
               <InfoPopover term="arbitrage" />
             </span>
           ) : null}
 
-          <span className="ml-auto text-faint transition-colors group-hover:text-muted">
+          <span className="data ml-auto text-faint transition-colors group-hover:text-muted">
             Details →
           </span>
         </div>

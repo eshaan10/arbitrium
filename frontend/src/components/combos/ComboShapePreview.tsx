@@ -19,9 +19,9 @@ export function ComboShapePreview({ tier }: { tier: RiskTier }) {
   const legs = LEGS[tier];
 
   return (
-    <div className="rounded-lg border border-dashed border-border-lit bg-surface p-4">
+    <div className="rounded-md border border-dashed border-border-lit bg-surface p-4">
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-micro uppercase tracking-[0.07em] text-faint">
+        <span className="label text-micro text-faint">
           Layout preview — no data
         </span>
         <span className="text-micro text-faint">
@@ -40,28 +40,28 @@ export function ComboShapePreview({ tier }: { tier: RiskTier }) {
               <Slot className="h-2 w-[28%]" />
             </div>
             <div className="text-right">
-              <div className="text-micro uppercase tracking-[0.06em] text-faint">price</div>
+              <div className="label text-micro text-faint">price</div>
               <Slot className="mt-1 h-3 w-12" />
             </div>
             <div className="text-right">
-              <div className="text-micro uppercase tracking-[0.06em] text-faint">calibrated</div>
+              <div className="label text-micro text-faint">calibrated</div>
               <Slot className="mt-1 h-3 w-12" />
             </div>
           </div>
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-3 border-t border-border pt-3">
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:gap-3 border-t border-border pt-3">
         {["Joint probability", "Total cost", "Payout"].map((label) => (
           <div key={label}>
-            <div className="text-micro uppercase tracking-[0.06em] text-faint">{label}</div>
+            <div className="label text-micro text-faint">{label}</div>
             <Slot className="mt-1 h-4 w-16" />
           </div>
         ))}
       </div>
 
       <div className="mt-3 rounded-md border border-border bg-[var(--surface-sunken)] p-2.5">
-        <div className="text-micro uppercase tracking-[0.06em] text-faint">
+        <div className="label text-micro text-faint">
           Independence assumption
         </div>
         <Slot className="mt-1.5 h-2 w-[80%]" />

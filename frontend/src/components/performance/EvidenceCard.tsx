@@ -39,7 +39,7 @@ export function EvidenceCard({
         <>
           <div className="mt-4 flex flex-wrap items-end gap-6">
             <div>
-              <div className="text-micro uppercase tracking-[0.07em] text-muted">Accuracy</div>
+              <div className="label text-micro text-muted">Accuracy</div>
               <div className="tabular mt-1 text-display font-semibold text-text">
                 {pct(e.accuracy, 1)}
               </div>
@@ -50,7 +50,7 @@ export function EvidenceCard({
               ) : null}
             </div>
             <div>
-              <div className="text-micro uppercase tracking-[0.07em] text-muted">Brier score</div>
+              <div className="label text-micro text-muted">Brier score</div>
               <div className="tabular mt-1 text-title text-text">
                 {e.brier_score?.toFixed(4) ?? "—"}
               </div>
@@ -66,7 +66,7 @@ export function EvidenceCard({
 
           {e.calibration_curve && e.calibration_curve.length > 1 ? (
             <div className="mt-5 border-t border-border pt-4">
-              <h4 className="mb-2 text-micro uppercase tracking-[0.07em] text-muted">
+              <h4 className="mb-2 label text-micro text-muted">
                 Fitted calibration curve
               </h4>
               <CalibrationCurve points={e.calibration_curve} />

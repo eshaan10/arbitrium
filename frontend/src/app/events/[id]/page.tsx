@@ -146,12 +146,12 @@ export default async function EventPage({
         arb={d?.is_arbitrage ?? false}
       />
 
-      <Link href="/" className="inline-block text-meta text-muted hover:text-dim">
+      <Link href="/" className="tap inline-block text-meta text-muted hover:text-dim">
         ← All events
       </Link>
 
       <div>
-        <div className="flex flex-wrap items-center gap-x-2 text-micro uppercase tracking-[0.06em] text-muted">
+        <div className="flex flex-wrap items-center gap-x-2 label text-micro text-muted">
           <span>
             {[ev.sport, ev.league]
               .filter(Boolean)
@@ -203,7 +203,7 @@ export default async function EventPage({
                 href={kalshi}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-3 inline-block text-meta text-signal-600 hover:text-signal"
+                className="tap mt-3 inline-block text-meta text-signal-600 hover:text-signal"
               >
                 ↗ Open on Kalshi
               </a>

@@ -28,7 +28,7 @@ export function FavoriteGameButton({
         e.stopPropagation();
         onToggle();
       }}
-      className={`relative z-20 -m-1 shrink-0 rounded-md p-1 text-[15px] leading-none transition-colors ${
+      className={`tap relative z-20 -m-1 shrink-0 rounded-sm p-1 text-[15px] leading-none transition-colors ${
         favorited ? "text-signal" : "text-faint hover:text-dim"
       }`}
     >

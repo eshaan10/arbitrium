@@ -1,80 +1,99 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Arbitrium design system
+   Arbitrium design system — TERMINAL AMBER
    ----------------------------------------------------------------------------
-   Seeded from the crimson/dark palette proven in the preview scaffold and
-   extended here into a full system for the screens that had no reference.
+   A warm monochrome: near-black warm surfaces, cream text, and ONE accent.
 
-   The one rule that governs colour in this app: CRIMSON MEANS SIGNAL, not
-   danger. A red-accented product that also uses red for "bad" makes every
-   number ambiguous, so value/gain is crimson and its absence is a cool,
-   desaturated slate. Amber is reserved for "we are not sure", which is a
-   different statement from "this is negative".
+   The rule that governs colour here is unchanged from the crimson system that
+   preceded it; only the hue executing it changed:
+
+     AMBER MEANS SIGNAL, NOT DECORATION.
+
+   Amber marks a recommendation, an arbitrage, or a gain. Nothing neutral and
+   nothing negative is ever allowed to borrow it — a negative metric, a losing
+   leg and an unscoreable event all drop to warm grey, because an accent that
+   appears on both good and bad numbers stops meaning anything. Warm grey, not
+   cool: amber must be the only warm thing on the page, so the greys carry a
+   slight warm undertone and nothing else competes for attention as "colour".
+
+   THREE reserved channels sit outside the accent, each for a statement amber
+   cannot make:
+
+     --warn       "we are not sure / this is thin"  — a muted rust
+     --status-ok  "the system is alive"             — a teal-green
+     --consensus  the second chart series           — a low-chroma slate
+
+   Every value below is checked by src/lib/palette.test.ts, which reads THIS
+   file and fails on contrast, colour-vision separation or a grey that drifts
+   cool. Do not hand-tune a value without running it.
    ========================================================================= */
 
 :root {
-  /* --- surfaces: five steps, so panels can stack without borders alone --- */
-  --bg: #0a0b0d;
-  --surface: #121418;
-  --surface-raised: #171a1f;
-  --surface-sunken: #0d0f12;
-  --border: #23272e;
-  --border-lit: #2f343d;
+  /* --- surfaces: five steps, warm near-black (never pure black) --- */
+  --bg: #0b0a09;
+  --surface: #141210;
+  --surface-raised: #1a1714;
+  --surface-sunken: #0e0c0b;
+  --border: #2a2521;
+  --border-lit: #3a342e;
 
-  /* --- text: four steps. Nothing below --muted is used for real content. --- */
-  --text: #eceef1;
-  --text-dim: #a2a9b4;
-  --muted: #6d747f;
-  --faint: #4b515a;
+  /* --- text: four steps, cream through warm grey ---
+     Nothing below --muted carries real content. --faint is for provenance and
+     punctuation only, and is the one step that does not clear 4.5:1. */
+  --text: #f2ede4;
+  --text-dim: #b3aa9c;
+  --muted: #868075;
+  --faint: #55504a;
 
-  /* --- crimson signal ramp --- */
-  --signal-100: #ffd9e0;
-  --signal-300: #f2708a;
-  --signal-500: #e33d5c; /* primary action / "buy" */
-  --signal-600: #c9455f; /* signal text on dark */
-  --signal-800: #8e3346; /* dimmed series, secondary strokes */
-  --signal-950: #2a1219; /* tinted fills */
+  /* --- amber signal ramp --- */
+  --signal-100: #fdf3d8;
+  --signal-300: #f7d989;
+  --signal-500: #f2c14e; /* primary action / "buy" */
+  --signal-600: #d9a93f; /* signal text and links on dark */
+  --signal-800: #7d6222; /* dimmed strokes, badge borders */
+  --signal-950: #211a0a; /* tinted fills */
 
-  /* Arbitrage is a different product, so it gets a different, hotter red and a
-     glow it does not share with anything else. */
-  --arb: #ff2d55;
-  --arb-glow: rgb(255 45 85 / 0.16);
+  /* Arbitrage is a different product and keeps its own, hotter variant plus a
+     glow nothing else uses. The separation is STRUCTURAL — a fenced panel, its
+     own border, the word itself — not chromatic: a hue far from amber would
+     have implied arbitrage is not signal, and it is. This mirrors exactly what
+     the crimson system did with a hotter red. */
+  --arb: #ffa62e;
+  --arb-glow: rgb(255 166 46 / 0.10);
 
   /* --- non-signal semantics --- */
-  --gain: #e8556f; /* money won — crimson family, per the rule above */
-  --loss: #7c8794; /* money lost — deliberately NOT red */
-  --neg: #7c8794; /* a negative metric */
-  --warn: #c9922b; /* uncertainty, thin data, provisional */
+  --gain: #edb945; /* money won — amber family, per the rule above */
+  --loss: #8a8279; /* money lost — deliberately NOT amber */
+  --neg: #8a8279; /* a negative metric */
+  --warn: #cf6f4a; /* uncertainty, thin data, provisional */
 
-  /* Status is a RESERVED channel, never the signal accent. A crimson dot beside
+  /* Status is a RESERVED channel, never the signal accent. An amber dot beside
      the word "fresh" reads as an alert no matter what the palette intends, so
-     system health gets its own green — used only for status, never for a data
-     series or a money figure. 6.69:1 on --bg. */
-  --status-ok: #4ea77b;
-  --neutral: #5b6472;
+     system health gets its own teal-green — used only for status, never for a
+     data series or a money figure. */
+  --status-ok: #3fae9e;
+  --neutral: #6b645c;
 
   /* --- data-viz series (event detail, performance) ---
-     Kalshi and consensus must stay distinguishable for the ~8% of users with
-     red-green deficiency, so the second series is separated by LIGHTNESS and
-     hue-angle, not by a red/green pairing.
-
-     Both steps are validated against the chart surface (--surface-sunken):
-     inside the dark-mode OKLCH lightness band 0.48–0.67, chroma ≥ 0.10,
-     protan/deutan ΔE 15.0 and normal-vision ΔE 26.7, contrast ≥ 3:1. Do not
-     hand-tweak these without re-running the palette validator. */
-  --series-kalshi: #f0526f;
-  --series-consensus: #5b8fd0;
-  --series-grid: #1c2027;
-  --series-reference: #4b515a; /* perfect-calibration diagonal, ideal lines */
+     Kalshi carries the accent because it is the subject of every chart. The
+     consensus is a low-chroma slate: the only cool thing in the system, which
+     is what makes it legible against amber for the ~8% of readers with
+     red-green deficiency. Separation is by hue angle AND chroma, never by a
+     red/green pairing. Validated in palette.test.ts — normal ΔE 21.9,
+     protan 19.8, deutan 23.0, both ≥3:1 on the chart surface. */
+  --series-kalshi: #f2c14e;
+  --series-consensus: #8fa3b8;
+  --series-grid: #221e1a;
+  --series-reference: #55504a; /* perfect-calibration diagonal, ideal lines */
 
   /* --- shape & depth --- */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
   --r-full: 999px;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-panel: 0 24px 64px -12px rgb(0 0 0 / 0.7);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-panel: 0 24px 64px -12px rgb(0 0 0 / 0.75);
 
   /* --- motion: short, and fully removable --- */
   --t-fast: 120ms;
@@ -82,10 +101,14 @@
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* --- confidence fade ---
-     The floor is a contrast requirement, not a taste call: --text-dim on --bg
-     drops below 4.5:1 past this point, and an unreadable low-confidence row is
-     a hidden one. The fade is always paired with an explicit label. */
+     The floor is a contrast requirement, not a taste call: --text-dim on
+     --surface drops below 3:1 past this point, and an unreadable low-confidence
+     row is a hidden one. The fade is always paired with an explicit label. */
   --fade-floor: 0.62;
+
+  /* Touch targets. Pointer-coarse devices get 44px; a mouse does not need it
+     and the layout is denser without. Used by .tap below. */
+  --tap: 44px;
 }
 
 @theme inline {
@@ -122,7 +145,7 @@
   --radius-lg: var(--r-lg);
 
   /* --- type scale ---
-     Five steps, and only five. The card previously used eleven ad-hoc sizes,
+     Seven steps, and only seven. The card previously used eleven ad-hoc sizes,
      which is precisely why nothing on it read as more important than anything
      else: with eleven sizes, size stops encoding rank. Every ratio below is a
      clear step, not a nudge, so a glance can order them.
@@ -130,16 +153,16 @@
        display  — the price. The one hero per card.
        lede     — the page's opening statement.
        headline — a curated rail slot.
-       title   — team names, section headings.
-       body    — sentences meant to be read.
-       meta    — supporting facts and labels.
-       micro   — provenance, timestamps, footnotes.
+       title    — team names, section headings.
+       body     — sentences meant to be read.
+       meta     — supporting facts and labels.
+       micro    — provenance, timestamps, footnotes.
 
      If something needs a size between two of these, it needs a different
      weight or colour instead. */
   --text-lede: 19px;
   --text-lede--line-height: 1.25;
-  --text-lede--letter-spacing: -0.02em;
+  --text-lede--letter-spacing: -0.01em;
   --text-headline: 17px;
   --text-headline--line-height: 1.3;
   --text-headline--letter-spacing: -0.01em;
@@ -155,17 +178,22 @@
   --text-micro: 10px;
   --text-micro--line-height: 1.4;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", sans-serif;
+  --font-sans: var(--font-voice), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   /* Prices, probabilities and depth are compared down a column constantly, so
-     every number in this app is tabular. */
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+     every number in this app is tabular — and in a terminal the data IS the
+     typeface. See .tabular and .data below for the split. */
+  --font-mono: var(--font-data), ui-monospace, "SF Mono", "JetBrains Mono",
+    Menlo, monospace;
 }
 
 /* This product is dark-only by design — the palette carries meaning that a
    light inversion would not preserve, so it is declared once, not toggled. */
 html {
   color-scheme: dark;
+  /* iOS rotates into landscape and helpfully enlarges text, which breaks a
+     dense grid far worse than small text does. */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -173,14 +201,39 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv02", "cv03", "cv04";
 }
 
-/* Every figure in the UI goes through this, so columns of prices line up. */
+/* ============================================================================
+   TYPOGRAPHY: the terminal identity lives here, not only in the colour.
+
+   MONO carries everything the system MEASURED — prices, probabilities, counts,
+   team identifiers, timestamps, status words, section labels. Those are the
+   readings on the instrument, and they line up in columns.
+
+   SANS carries everything a person WROTE — the explanations, the caveats, the
+   reasons an event cannot be scored. Prose set in mono is slower to read, and
+   this product's caveats are the part that must not be skipped.
+   ========================================================================= */
+
+/* Numbers. Every figure in the UI goes through this, so columns line up. */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   letter-spacing: -0.01em;
+}
+
+/* Non-numeric data: team names, book names, status words, labels, tickers.
+   Same typeface as the numbers so a row reads as one instrument reading. */
+.data {
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
+
+/* A field label in a terminal: small, uppercase, tracked out, mono. */
+.label {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
 }
 
 /* Focus is visible everywhere; the app is dense and keyboard use is expected. */
@@ -188,6 +241,58 @@ body {
   outline: 2px solid var(--signal-500);
   outline-offset: 2px;
   border-radius: var(--r-sm);
+}
+
+/* ============================================================================
+   TOUCH
+   ========================================================================= */
+
+/* Guarantees a 44px hit area on touch devices WITHOUT inflating the visual
+   element — the padding is projected by a pseudo-element, so a 13px star still
+   looks like a 13px star and still takes a thumb. Only applied where a pointer
+   is coarse, so mouse layouts stay dense. */
+@media (pointer: coarse) {
+  .tap {
+    position: relative;
+  }
+  .tap::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap));
+    height: max(100%, var(--tap));
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* iOS Safari zooms the viewport when a focused input's text is under 16px.
+   The fix is the font-size itself, not a user-scalable=no viewport, which
+   would take zoom away from everyone who needs it. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Wide data (tables, charts) scrolls inside its own box rather than pushing the
+   page sideways, and says so with a fading edge that disappears once you reach
+   the end. */
+.scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-lit) transparent;
+}
+.scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--border-lit);
+  border-radius: var(--r-full);
 }
 
 /* Fired only when a poll observed a genuine price move (see usePriceDeltas).

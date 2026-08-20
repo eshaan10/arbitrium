@@ -60,7 +60,7 @@ function TooltipBody({
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-md border border-border-lit bg-surface px-2.5 py-2 shadow-[var(--shadow-panel)]">
-      <div className="text-micro text-muted">
+      <div className="data text-micro text-muted">
         {new Date(Number(label)).toLocaleString(undefined, {
           month: "short",
           day: "numeric",
@@ -75,7 +75,7 @@ function TooltipBody({
             className="h-2 w-2 rounded-full"
             style={{ background: p.dataKey === "kalshi" ? KALSHI : CONSENSUS }}
           />
-          <span className="text-meta text-dim">
+          <span className="data text-meta text-dim">
             {p.dataKey === "kalshi" ? "Kalshi" : "Consensus"}
           </span>
           <span className="tabular ml-auto text-meta text-text">
@@ -130,10 +130,10 @@ export function PriceHistory({
             <span key={s.label} className="flex items-center gap-1.5">
               <span
                 aria-hidden
-                className="h-[2px] w-4 rounded-full"
+                className="h-[2px] w-4"
                 style={{ background: s.color }}
               />
-              <span className="text-micro text-muted">
+              <span className="data text-micro text-muted">
                 {s.label}
                 <span className="text-faint">
                   {" "}
@@ -144,7 +144,10 @@ export function PriceHistory({
           ))}
       </div>
 
-      <div className="h-[180px] w-full">
+      {/* Taller on a phone than the aspect ratio would give it. A 180px chart
+          across a 343px viewport compresses the y-axis into noise, and the
+          whole point of this chart is whether a price moved. */}
+      <div className="h-[200px] w-full sm:h-[180px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
             <CartesianGrid stroke="var(--series-grid)" vertical={false} />
@@ -168,6 +171,16 @@ export function PriceHistory({
               width={44}
               domain={["auto", "auto"]}
             />
+            {/* Left on the default `hover` trigger deliberately, and this was
+                checked rather than assumed.
+
+                Recharts only activates from `touchmove`, not `touchstart`, so
+                a tap looked like it ought to do nothing — but mobile browsers
+                synthesise a mousemove from a tap, and the tooltip does open.
+                Switching to `trigger="click"` on coarse pointers was tried and
+                made it WORSE: the tooltip then had no dismiss path at all and
+                stayed pinned open when you tapped elsewhere on the page.
+                Measured both ways on a touch viewport before settling here. */}
             <Tooltip content={<TooltipBody />} cursor={{ stroke: "var(--border-lit)" }} />
             <Line
               type="monotone"

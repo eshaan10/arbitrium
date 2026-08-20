@@ -47,12 +47,19 @@ function Side({
         )}
         <span
           aria-hidden
-          className="mt-[2px] h-[2px] w-4 rounded-full"
+          className="mt-[2px] h-[2px] w-4"
           style={{ background: accent }}
         />
       </span>
 
-      <span className={`truncate text-title ${strong ? "font-medium text-text" : "text-dim"}`}>
+      {/* `min-w-0` alongside truncate: without it the span's min-content width
+          is the full team name, so it never actually truncates — it just makes
+          its parent wider. */}
+      <span
+        className={`data min-w-0 truncate text-title ${
+          strong ? "font-medium text-text" : "text-dim"
+        }`}
+      >
         {visual?.short ?? name}
       </span>
 
