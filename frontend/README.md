@@ -212,6 +212,29 @@ make the app look broken instead of tidy — in the "Can't score" view, while a
 search is active, and in My Teams / My Games. `src/lib/fold.test.ts` pins each
 of those exclusions.
 
+## InfoPopover renders through a portal
+
+The `?` popovers sit inside dense, clickable cards. Rendered inline, the panel's
+"More on this" link became an `<a>` inside the card's `<a>` — invalid HTML, and
+React logs "In HTML, `<a>` cannot be a descendant of `<a>`. This will cause a
+hydration error." It also meant clicking anything in the panel activated the
+card link underneath.
+
+The fix is at the component level rather than at the call site that tripped it:
+this primitive is dropped into linked cards all over the app, so portalling to
+`<body>` makes invalid nesting structurally impossible wherever it is used.
+Cards that contain controls use a positioned container with an absolutely
+positioned overlay `<Link>` (controls above it at a higher z-index) rather than
+wrapping their body in an anchor — a `<button>` inside an `<a>` is invalid too.
+
+A separate bug shared the same component: the panel sits 6px above the trigger,
+and that gap belonged to neither element, so moving toward the panel fired
+`pointerleave` and closed it before it could be clicked. This reproduced
+identically on a popover with **no** link ancestor, which is how we know the
+nesting was not the cause. The portalled element now spans the gap and carries
+its own pointer handlers — a portal's events do not bubble to the trigger's DOM
+position — with a short close grace for diagonal exits.
+
 ## Mobile
 
 Real layouts, not shrunk desktop ones. The wide book matrix becomes one block

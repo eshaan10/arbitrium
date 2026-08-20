@@ -62,16 +62,27 @@ function Slot({
   // `min-w-0` so the grid track is the container width rather than this card's
   // min-CONTENT width — the headline is a long unbroken matchup string, which
   // otherwise widened the whole page and made it scroll sideways on a phone.
-  const className =
-    "block min-w-0 rounded-md border border-border bg-surface p-3.5 transition-colors sm:p-4" +
-    (href ? " hover:border-border-lit" : "");
-
-  return href ? (
-    <Link href={href} className={className}>
+  return (
+    <div
+      className={`relative min-w-0 rounded-md border border-border bg-surface p-3.5 transition-colors sm:p-4 ${
+        href ? "hover:border-border-lit" : ""
+      }`}
+    >
+      {/* The whole tile is clickable, but via an overlay link rather than by
+          wrapping the content in an <a>. The tile contains the "?" button, and
+          interactive content inside an anchor is invalid HTML — it also made
+          the button compete with the link for the same click. This is the same
+          pattern EventCard uses, for the same reason: overlay at z-10,
+          controls above it at z-20. */}
+      {href ? (
+        <Link
+          href={href}
+          aria-label={headline ? `${label}: ${headline}` : label}
+          className="absolute inset-0 z-10 rounded-md"
+        />
+      ) : null}
       {body}
-    </Link>
-  ) : (
-    <div className={className}>{body}</div>
+    </div>
   );
 }
 
