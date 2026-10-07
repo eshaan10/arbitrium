@@ -56,5 +56,11 @@ primary_region = "iad"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1gb"
+  processes = ["scheduler"]
+
+# The scheduler exits non-zero when it cannot reach anything (see
+# scheduler/flows.py); this brings it straight back rather than leaving it down.
+[[restart]]
+  policy = "always"
   processes = ["scheduler"]
