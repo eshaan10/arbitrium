@@ -131,6 +131,12 @@ class Settings(BaseSettings):
     # to ERROR. This is the signal that the 896-failure outage would have tripped.
     ingest_max_consecutive_failures: int = 3
 
+    # Fail fast: the scheduler exits non-zero (and the platform restarts it) once
+    # one source has failed this many passes in a row with NO HTTP response from
+    # upstream. 6 is ~30 min for Kalshi. Upstream errors (any HTTP status) never
+    # count — a restart cannot fix someone else's outage. See scheduler/flows.py.
+    scheduler_exit_after_consecutive_failures: int = 6
+
     # Zero rows written is NOT inherently an error — the dedup trigger suppresses
     # unchanged prices, so a quiet market legitimately writes nothing for a long
     # time. These thresholds are therefore generous, and expressed in SECONDS of

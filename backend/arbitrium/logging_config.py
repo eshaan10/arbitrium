@@ -68,7 +68,15 @@ def configure_logging() -> None:
       * a redacting filter on every root handler catches whatever still slips
         through — tracebacks, HTTPStatusError messages, third-party loggers.
     """
-    logging.basicConfig(level=settings.log_level)
+    # The same line shape Prefect used to install (`12:00:01.234 | ERROR | name -
+    # message`), kept when Prefect was removed so existing log searches and the
+    # INGEST_UNHEALTHY lines read exactly as they did. Python's bare default has
+    # no timestamp at all.
+    logging.basicConfig(
+        level=settings.log_level,
+        format="%(asctime)s.%(msecs)03d | %(levelname)-7s | %(name)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     # Routine "HTTP Request: GET https://...?apiKey=..." lines.
     logging.getLogger("httpx").setLevel(logging.WARNING)

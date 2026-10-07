@@ -1,4 +1,4 @@
-"""Prefect flows for scheduled ingestion.
+"""Scheduled ingestion: one plain polling loop, no orchestration framework.
 
 Two sources on independent intervals: Kalshi (fast — a live order book) and The
 Odds API (slower, and every call costs quota). Poll ORDER is irrelevant: both
@@ -9,6 +9,22 @@ Each pass reports what it actually WROTE, not what it attempted, and feeds an
 :class:`~scheduler.health.IngestHealth` tracker that escalates on consecutive
 failures or prolonged silence. Before that existed, a broken ingest looked
 exactly like a healthy quiet one for a week.
+
+WHY THERE IS NO PREFECT HERE. Every pass used to be wrapped in a Prefect
+``@flow``/``@task``. With no Prefect server configured, Prefect 3 spawns a local
+API server inside this process and routes every call through it over loopback
+HTTP — 231 MB for that server plus ~110 MB of imports, measured, on a 512 MB
+machine. In production it stopped coming back after 35 hours, and every pass of
+every source failed with ``ConnectError: [Errno 111]`` for three weeks, including
+calibration, which never touches the network at all. What Prefect actually
+provided was retries, which are ``with_retries`` below, and run tracking, which
+``ingest_runs`` already does durably and Prefect's throwaway SQLite did not.
+
+FAIL FAST. The loop survives any single failure, but not a sustained one: after
+``scheduler_exit_after_consecutive_failures`` passes of one source fail with no
+HTTP response from upstream, the process exits non-zero so the platform restarts
+it. A process that cannot reach anything is the one state a restart can fix; an
+upstream that answers with an error is not, so those never count.
 """
 
 from __future__ import annotations
@@ -16,21 +32,36 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import TypeVar
 
-from prefect import flow, task
+import httpx
 
 from arbitrium.calibration import grading
 from arbitrium.config import settings
 from arbitrium.db.engine import get_session
 from arbitrium.ingestion import kalshi, odds_api, resolution
+from arbitrium.ingestion.odds_api import QuotaExhausted
 from arbitrium.ingestion.polling import odds_poll_interval
 from arbitrium.ingestion.result import IngestResult
-from arbitrium.ingestion.runs import fail_run, finish_run, start_run, sweep_abandoned_runs
-from arbitrium.logging_config import configure_logging
+from arbitrium.ingestion.runs import (
+    fail_run,
+    finish_run,
+    last_started_at,
+    start_run,
+    sweep_abandoned_runs,
+)
+from arbitrium.logging_config import UNHEALTHY_MARKER, configure_logging
 from scheduler.health import IngestHealth
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Returned by last_started_at when ingest_runs cannot be read, as distinct from
+# None ("this source has never run").
+_HISTORY_UNAVAILABLE = object()
 
 
 def _odds_interval() -> int:
@@ -42,47 +73,49 @@ def _odds_interval() -> int:
         session.close()
 
 
-@task(retries=3, retry_delay_seconds=30)
-def ingest_kalshi_task() -> IngestResult:
-    # retries here cover transient network / API failures only. Non-transient
-    # parse failures are skip-and-logged inside run_ingest and never reach here,
-    # so a malformed market can no longer burn retries.
-    return kalshi.run_ingest()
+def with_retries(
+    fn: Callable[[], T],
+    *,
+    retries: int,
+    delay: int,
+    name: str,
+    sleep: Callable[[float], None] = time.sleep,
+) -> T:
+    """Call ``fn``, retrying up to ``retries`` times ``delay`` seconds apart.
+
+    The direct replacement for Prefect's task retries, with the same semantics:
+    any exception is retried, and the last one propagates once retries run out.
+    Blocking on purpose — the loop is serial, exactly as it was under Prefect.
+    """
+    for attempt in range(1, retries + 2):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - retry anything, re-raise the last
+            if attempt > retries:
+                raise
+            logger.warning(
+                "%s attempt %d/%d failed: %s: %s; retrying in %ds",
+                name, attempt, retries + 1, type(exc).__name__, exc, delay,
+            )
+            sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
-@task(retries=3, retry_delay_seconds=30)
-def ingest_odds_task() -> IngestResult:
-    return odds_api.run_ingest()
+def kalshi_pass() -> IngestResult:
+    # Retries cover transient network / API failures only. Non-transient parse
+    # failures are skip-and-logged inside run_ingest and never reach here, so a
+    # malformed market cannot burn retries.
+    return with_retries(kalshi.run_ingest, retries=3, delay=30, name="kalshi")
 
 
-@task(retries=1, retry_delay_seconds=60)
-def resolve_outcomes_task() -> IngestResult:
-    # Only ONE retry, unlike the ingest tasks. Each scores call costs 2 credits,
-    # and a game gets ~14 resolution chances inside its window anyway, so extra
-    # retries buy almost nothing and spend a budget that outcome collection
-    # cannot afford to run out of.
-    result, _detail = resolution.run_resolution()
-    return result
+def odds_pass() -> IngestResult:
+    return with_retries(odds_api.run_ingest, retries=3, delay=30, name="odds_api")
 
 
-@flow(name="kalshi-ingest")
-def kalshi_ingest_flow() -> IngestResult:
-    """Single ingest pass over the configured Kalshi sports series."""
-    return ingest_kalshi_task()
-
-
-@flow(name="odds-api-ingest")
-def odds_ingest_flow() -> IngestResult:
-    """Single ingest pass over the configured Odds API sports."""
-    return ingest_odds_task()
-
-
-@task(retries=1, retry_delay_seconds=60)
-def calibration_task() -> IngestResult:
+def calibration_pass() -> IngestResult:
     # Purely database-side: records the recommendations currently standing and
-    # grades whatever has resolved. No external API, so no quota and no retries
-    # worth spending.
-    counts = grading.run_calibration()
+    # grades whatever has resolved. No external API, so one retry is plenty.
+    counts = with_retries(grading.run_calibration, retries=1, delay=60, name="calibration")
     return IngestResult(
         source="calibration",
         rows_attempted=counts["live_recorded"] + counts["graded"],
@@ -90,37 +123,64 @@ def calibration_task() -> IngestResult:
     )
 
 
-@flow(name="calibration")
-def calibration_flow() -> IngestResult:
-    """Record live recommendations, then grade resolved ones."""
-    return calibration_task()
+def resolution_pass() -> IngestResult:
+    # Only ONE retry, unlike the ingest passes. Each scores call costs 2 credits,
+    # and a game gets ~14 resolution chances inside its window anyway, so extra
+    # retries buy almost nothing and spend a budget that outcome collection
+    # cannot afford to run out of.
+    result, _detail = with_retries(
+        resolution.run_resolution, retries=1, delay=60, name="resolution"
+    )
+    return result
 
 
-@flow(name="outcome-resolution")
-def resolution_flow() -> IngestResult:
-    """Single resolution pass. Costs nothing when nothing awaits a result."""
-    return resolve_outcomes_task()
+def counts_toward_restart(exc: BaseException) -> bool:
+    """True when the failure got no HTTP response from upstream.
+
+    A restart can fix a process that cannot reach anything — this module's own
+    outage was exactly that. It cannot fix an upstream that answered with an
+    error, so any HTTP status (5xx, 401, 429 alike) is excluded. ``QuotaExhausted``
+    is excluded too: it is raised before a request, but on the strength of the
+    quota header from an earlier response, and restarting would only re-spend
+    the budget it exists to protect. Walks the cause chain, so wrapping an HTTP
+    error does not disguise it.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (httpx.HTTPStatusError, QuotaExhausted)):
+            return False
+        current = current.__cause__ or current.__context__
+    return True
 
 
 class _Source:
-    """One polled source: its flow, its pacing, and its health tracker."""
+    """One polled source: its pass, its pacing, and its health tracker."""
 
     def __init__(
         self,
         name: str,
-        flow_fn,
+        pass_fn: Callable[[], IngestResult],
         interval: int | Callable[[], int],
         *,
         health: IngestHealth | None = None,
+        paid: bool = False,
     ) -> None:
         self.name = name
-        self.flow_fn = flow_fn
+        self.pass_fn = pass_fn
+        # Paid sources spend Odds API credits on every pass, so when the schedule
+        # cannot be recovered they wait an interval rather than run blind.
+        self.paid = paid
         # A callable lets a source re-pace itself between passes — the Odds API
         # polls hourly near kickoff and daily when the next game is weeks away,
         # which is what keeps it inside the monthly credit budget.
         self._interval = interval
         self.health = health or IngestHealth(name)
         self.next_run_at = 0.0
+        # Consecutive failures that a restart could plausibly fix. Separate from
+        # health.consecutive_failures, which counts every failure for alerting.
+        self.restart_streak = 0
 
     @property
     def interval(self) -> int:
@@ -129,6 +189,34 @@ class _Source:
         except Exception:  # noqa: BLE001 - pacing must never kill the loop
             logger.warning("%s: interval lookup failed; using the far tier", self.name)
             return settings.odds_poll_far_seconds
+
+    def resume_schedule(self, now: float, *, wall_now: datetime | None = None) -> None:
+        """Pick up the schedule where the last process left it.
+
+        Without this every source runs the moment the process boots, so each
+        restart is an extra Odds API pass — and with fail-fast and an `always`
+        restart policy, a restart loop would turn the daily odds pass into one
+        per restart and burn the monthly budget. Any status counts as "last run":
+        a failed pass still spent its slot.
+
+        When the history cannot be read at all — the database is down, which is
+        precisely when a restart loop is likeliest — free sources run now and
+        paid sources wait a full interval. A paid pass could not store its
+        result without the database anyway, so waiting costs nothing, and the
+        budget no longer depends on each pass happening to query the database
+        before its first paid call.
+        """
+        last = last_started_at(self.name, on_error=_HISTORY_UNAVAILABLE)
+        if last is _HISTORY_UNAVAILABLE:
+            if self.paid:
+                self.next_run_at = now + self.interval
+            return
+        if last is None:
+            return  # never ran: due immediately
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        elapsed = ((wall_now or datetime.now(timezone.utc)) - last).total_seconds()
+        self.next_run_at = now + max(0.0, self.interval - elapsed)
 
     def due(self, now: float) -> bool:
         return now >= self.next_run_at
@@ -139,40 +227,55 @@ class _Source:
         # roll back the very evidence that it failed.
         run_id = start_run(self.name)
         try:
-            result = self.flow_fn()
+            result = self.pass_fn()
             self.health.record_success(result)
             finish_run(run_id, result)
+            self.restart_streak = 0
         except Exception as exc:  # noqa: BLE001 - keep the loop alive
             # Logged by the tracker (with escalation); the traceback still goes
             # out at debug level for diagnosis.
             self.health.record_failure(exc)
             fail_run(run_id, exc)
             logger.debug("%s ingest traceback", self.name, exc_info=True)
+            # An HTTP response proves the path to upstream works, so it breaks
+            # the streak rather than merely not adding to it.
+            self.restart_streak = self.restart_streak + 1 if counts_toward_restart(exc) else 0
         finally:
             self.next_run_at = now + self.interval
 
 
-def run_forever() -> None:
-    """Naive multi-source polling loop for Phases 1-2.
+def run_cycle(sources: list[_Source], now: float) -> None:
+    """Run every due source once; exit the process if one cannot recover alone.
 
-    Phase 6 replaces this with proper Prefect deployments + schedules; for local
-    development this keeps the scheduler service alive and polling. Sources are
-    checked on a short tick and each runs on its own interval, so a slow Odds API
-    pass never delays a Kalshi one.
+    Raises SystemExit(1) rather than calling sys.exit deep in a pass, so the
+    in-flight pass has already closed its ingest_runs row before the process
+    goes — the evidence of why it exited is never the thing that gets lost.
     """
-    # A restart leaves 'running' rows stranded; without this they read as
-    # "currently working" forever and mask a crash loop.
-    sweep_abandoned_runs()
+    limit = settings.scheduler_exit_after_consecutive_failures
+    for source in sources:
+        if not source.due(now):
+            continue
+        source.run(now)
+        if source.restart_streak >= limit:
+            logger.critical(
+                "%s: %s failed %d consecutive times with no response from upstream. "
+                "Exiting non-zero so the platform restarts the scheduler; this loop "
+                "will not recover on its own.",
+                UNHEALTHY_MARKER, source.name, source.restart_streak,
+            )
+            raise SystemExit(1)
 
-    sources = [
-        _Source("kalshi", kalshi_ingest_flow, settings.kalshi_poll_interval_seconds),
+
+def build_sources() -> list[_Source]:
+    return [
+        _Source("kalshi", kalshi_pass, settings.kalshi_poll_interval_seconds),
         # Adaptive: hourly near kickoff, daily when the next game is weeks out.
         # A flat 15-minute interval burned the entire monthly credit budget in
         # five days; this spends it where prices actually move.
-        _Source("odds_api", odds_ingest_flow, _odds_interval),
+        _Source("odds_api", odds_pass, _odds_interval, paid=True),
         _Source(
             "calibration",
-            calibration_flow,
+            calibration_pass,
             settings.calibration_poll_interval_seconds,
             # Like resolution, this legitimately writes nothing for long stretches
             # (no new recommendations, nothing newly resolved), so the generic
@@ -185,8 +288,11 @@ def run_forever() -> None:
         ),
         _Source(
             "resolution",
-            resolution_flow,
+            resolution_pass,
             settings.resolution_poll_interval_seconds,
+            # Each scores call costs 2 credits. Waiting one 6h interval is safe:
+            # a game gets ~14 resolution chances inside its window.
+            paid=True,
             # Resolution legitimately writes nothing for months in the off-season,
             # so the generic zero-write alarm is the WRONG signal — it would
             # scream all summer and stay silent during the week it matters. The
@@ -198,15 +304,32 @@ def run_forever() -> None:
             ),
         ),
     ]
+
+
+def run_forever() -> None:
+    """Multi-source polling loop.
+
+    Sources are checked on a short tick and each runs on its own interval, so a
+    slow Odds API pass never delays a Kalshi one.
+    """
+    # A restart leaves 'running' rows stranded; without this they read as
+    # "currently working" forever and mask a crash loop.
+    sweep_abandoned_runs()
+
+    sources = build_sources()
+    start = time.monotonic()
+    for source in sources:
+        source.resume_schedule(start)
     logger.info(
-        "Starting ingest loop: %s",
-        ", ".join(f"{s.name} every {s.interval}s" for s in sources),
+        "Starting ingest loop: %s (exits after %d consecutive no-response failures)",
+        ", ".join(
+            f"{s.name} every {s.interval}s, first in {max(0, round(s.next_run_at - start))}s"
+            for s in sources
+        ),
+        settings.scheduler_exit_after_consecutive_failures,
     )
     while True:
-        now = time.monotonic()
-        for source in sources:
-            if source.due(now):
-                source.run(now)
+        run_cycle(sources, time.monotonic())
         time.sleep(5)
 
 

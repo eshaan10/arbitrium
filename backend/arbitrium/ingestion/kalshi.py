@@ -394,7 +394,7 @@ def run_ingest(series_tickers: list[str] | None = None) -> IngestResult:
     Returns an :class:`IngestResult` describing what actually landed — rows
     WRITTEN, not merely attempted, so a caller can tell a healthy quiet poll from
     a broken one. Events that can't be parsed are skipped and logged; only
-    transient network/API errors propagate (so Prefect retries them).
+    transient network/API errors propagate (so the scheduler's with_retries retries them).
     """
     series = series_tickers if series_tickers is not None else settings.kalshi_series_tickers
     if not series:

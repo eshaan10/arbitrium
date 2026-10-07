@@ -38,7 +38,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from arbitrium.db.engine import get_session
 from arbitrium.db.models import IngestRun
@@ -152,6 +152,28 @@ def sweep_abandoned_runs(*, older_than_seconds: int = 86_400) -> int:
     except Exception:  # noqa: BLE001
         logger.warning("Could not sweep abandoned ingest runs", exc_info=True)
         return 0
+
+
+def last_started_at(source: str, *, on_error: object = None) -> object:
+    """When the most recent pass of ``source`` started, whatever its status.
+
+    Lets a restarted scheduler resume its schedule instead of firing every
+    source at boot. Returns None when the source has never run. Like everything
+    here it never raises: on failure it returns ``on_error`` (None by default),
+    so a caller that must tell "never ran" from "could not tell" passes its own
+    sentinel.
+    """
+    try:
+        session = get_session()
+        try:
+            return session.execute(
+                select(func.max(IngestRun.started_at)).where(IngestRun.source == source)
+            ).scalar()
+        finally:
+            session.close()
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not read the last run time for %s", source, exc_info=True)
+        return on_error
 
 
 def latest_runs(session) -> dict[str, IngestRun]:

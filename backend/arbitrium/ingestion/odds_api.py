@@ -387,7 +387,7 @@ def run_ingest(sport_keys: list[str] | None = None) -> IngestResult:
     Returns an :class:`IngestResult` reporting rows WRITTEN, so the scheduler's
     health tracker can distinguish a quiet market from a broken pass. Per-event
     problems are skipped and logged inside :func:`ingest_odds_event`; only
-    transient network/API errors propagate, so Prefect retries cover them.
+    transient network/API errors propagate, so the scheduler's with_retries covers them.
 
     Each sport costs one API quota unit per pass — hence the deliberately slower
     ``odds_poll_interval_seconds``.
