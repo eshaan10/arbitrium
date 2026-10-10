@@ -24,8 +24,11 @@ import { contrast, deltaE, oklch, simulate } from "./color";
  *     alone — and ~8% of readers have red-green deficiency.
  *  4. No semantic channel may collapse into the accent. If "negative" and
  *     "signal" look alike, the accent stops meaning anything.
- *  5. Every grey stays WARM. Amber is meant to be the only warm thing on the
- *     page; a cool grey creeping in reads as a second accent.
+ *  5. Win and loss stay apart for colour-blind readers. Lime and red are the
+ *     classic confusable pair, so they are held to the chart-series bar — and
+ *     the UI never relies on that alone (signs and labels carry it too).
+ *  6. Every grey stays NEUTRAL. Lime is meant to be the only saturated thing at
+ *     rest on the page; a grey that picks up chroma reads as a second accent.
  */
 
 const CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
@@ -55,24 +58,30 @@ function flatten(fg: string, bg: string, alpha: number): string {
 
 const BG = () => token("bg");
 const SURFACE = () => token("surface");
+const RAISED = () => token("surface-raised");
 const SUNKEN = () => token("surface-sunken");
 
 describe("text contrast", () => {
+  // Checked on --surface-raised too: the bet box and outcome tiles set text
+  // INTO the card, and that lighter surface is every step's worst case.
   it.each([
     ["text", 7],
     ["text-dim", 4.5],
     ["muted", 4.5],
-  ])("--%s clears %s:1 on both --bg and --surface", (name, min) => {
+  ])("--%s clears %s:1 on --bg, --surface and --surface-raised", (name, min) => {
     expect(contrast(token(name), BG())).toBeGreaterThanOrEqual(min);
     expect(contrast(token(name), SURFACE())).toBeGreaterThanOrEqual(min);
+    expect(contrast(token(name), RAISED())).toBeGreaterThanOrEqual(min);
   });
 
-  it("--faint is legible enough for provenance, and is the only step below 4.5", () => {
-    // Documented as timestamps/footnotes only. Asserted so nobody promotes it
-    // to body copy without this failing.
-    const c = contrast(token("faint"), SURFACE());
-    expect(c).toBeGreaterThanOrEqual(2);
-    expect(c).toBeLessThan(4.5);
+  it("--faint now carries real content, so it clears 4.5 like body text", () => {
+    // RULE CHANGED with the graphite theme. Amber kept --faint between 2 and
+    // 4.5:1 and reserved it for punctuation. Here the tertiary step sets date
+    // lines and the "in play, before fees" summary — content, not decoration —
+    // so the floor is RAISED to the body-text bar rather than dropped.
+    expect(contrast(token("faint"), BG())).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(token("faint"), SURFACE())).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(token("faint"), RAISED())).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -90,12 +99,16 @@ describe("accents are readable where they are used", () => {
     ["signal-600", 4.5],
     ["arb", 4.5],
     ["warn", 4.5],
+    ["error", 4.5],
     ["status-ok", 4.5],
     ["gain", 4.5],
     ["loss", 4.5],
     ["signal-800", 3], // strokes and borders only
-  ])("--%s clears %s:1 on --surface", (name, min) => {
+  ])("--%s clears %s:1 on --surface and --surface-raised", (name, min) => {
+    // The win and loss figures sit on the raised outcome tiles, the error and
+    // availability notes on the card — so both surfaces are checked.
     expect(contrast(token(name), SURFACE())).toBeGreaterThanOrEqual(min);
+    expect(contrast(token(name), RAISED())).toBeGreaterThanOrEqual(min);
   });
 });
 
@@ -122,7 +135,7 @@ describe("the two chart series", () => {
 describe("no semantic channel collapses into the accent", () => {
   const SIGNAL = () => token("signal-500");
 
-  it.each(["neg", "loss", "warn", "status-ok"])(
+  it.each(["neg", "loss", "warn", "error", "status-ok"])(
     "--%s is clearly distinct from --signal-500",
     (name) => {
       expect(deltaE(token(name), SIGNAL())).toBeGreaterThanOrEqual(15);
@@ -132,8 +145,8 @@ describe("no semantic channel collapses into the accent", () => {
     },
   );
 
-  it("--gain DOES share the amber family, deliberately", () => {
-    // The rule is that value is amber and its absence is not. A gain that
+  it("--gain DOES share the accent family, deliberately", () => {
+    // The rule is that value is lime and its absence is not. A gain that
     // failed this would mean the palette had stopped saying so.
     expect(deltaE(token("gain"), SIGNAL())).toBeLessThan(10);
   });
@@ -144,6 +157,21 @@ describe("no semantic channel collapses into the accent", () => {
     // directions so neither drift is silent.
     expect(deltaE(token("arb"), SIGNAL())).toBeLessThan(15);
     expect(token("arb")).not.toBe(SIGNAL());
+  });
+});
+
+describe("win and loss", () => {
+  // NEW with the graphite theme. Amber drew a loss in grey, so there was no
+  // win/loss hue pair to protect. Lime against red is the textbook
+  // red-green-confusable pair, so it is held to the chart-series bar under all
+  // three visions. The UI also never relies on it: every figure keeps its
+  // +/− sign and its "If they win / lose" label.
+  it("--gain and --loss stay apart with normal, protan and deutan vision", () => {
+    const g = token("gain");
+    const l = token("loss");
+    expect(deltaE(g, l)).toBeGreaterThanOrEqual(15);
+    expect(deltaE(simulate(g, "protan"), simulate(l, "protan"))).toBeGreaterThanOrEqual(15);
+    expect(deltaE(simulate(g, "deutan"), simulate(l, "deutan"))).toBeGreaterThanOrEqual(15);
   });
 });
 
@@ -178,28 +206,38 @@ describe("the OpenGraph image's duplicated palette", () => {
   });
 });
 
-describe("amber is the only warm thing on the page", () => {
+describe("lime is the only saturated thing at rest on the page", () => {
+  // RULE CHANGED with the graphite theme. Amber required every grey to sit in
+  // the warm hue band (20–110°) with chroma under 0.04, because a cool grey
+  // read as a second accent next to amber. Graphite is deliberately neutral,
+  // so the HUE band is dropped — at chroma ≤ 0.015 hue is imperceptible, and
+  // #f2f3f0 sits at 122° while the surfaces sit near 265° — and the CHROMA
+  // bar is TIGHTENED from 0.04 to 0.02, which is the part that actually stops
+  // a grey from competing with the accent.
+  //
+  // --loss left this list: it is now a red money channel, asserted separately
+  // under "win and loss" and "no semantic channel collapses into the accent".
   it.each([
+    "bg",
     "surface",
     "surface-raised",
     "surface-sunken",
     "border",
     "border-lit",
+    "border-input",
     "text",
     "text-dim",
     "muted",
     "faint",
-    "loss",
     "neg",
     "neutral",
     "series-grid",
-  ])("--%s is a warm neutral, not a cool one", (name) => {
-    const { h, c } = oklch(token(name));
-    // Warm half of the wheel (orange through yellow-green).
-    expect(h).toBeGreaterThanOrEqual(20);
-    expect(h).toBeLessThanOrEqual(110);
-    // ...and desaturated, so it cannot read as a second accent.
-    expect(c).toBeLessThan(0.04);
+  ])("--%s is a neutral grey with no real chroma", (name) => {
+    expect(oklch(token(name)).c).toBeLessThan(0.02);
+  });
+
+  it("the accent is unmistakably chromatic by comparison", () => {
+    expect(oklch(token("signal-500")).c).toBeGreaterThan(0.15);
   });
 
   it("the consensus series is the ONE deliberate cool exception", () => {

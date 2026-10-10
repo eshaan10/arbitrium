@@ -1,20 +1,28 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono } from "next/font/google";
+import { Inter, Unbounded } from "next/font/google";
 import { AppShell } from "@/components/layout/AppShell";
 import { Providers } from "./providers";
 import "./globals.css";
 
 /**
- * One webfont, for the whole app.
+ * Two faces, both bundled by next/font at build time and served from this
+ * origin — the browser never requests anything from Google.
  *
- * The terminal identity is carried by how everything is typeset — the
- * measurements and the sentences that explain them — so this face is worth a
- * download and there is no second one. `display: "swap"` because a dashboard
- * that shows nothing while a font loads is worse than one that reflows.
+ * Inter is the face for everything. Unbounded is the display face, opted into
+ * with `.display` for the handful of things a glance should land on, and only
+ * in the two weights loaded here. `display: "swap"` because a dashboard that
+ * shows nothing while a font loads is worse than one that reflows.
  */
-const data = JetBrains_Mono({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-data",
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const unbounded = Unbounded({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-unbounded",
   display: "swap",
 });
 
@@ -33,13 +41,22 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0b0a09",
+  themeColor: "#0a0b0d",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={data.variable}>
-      <body>
+    // suppressHydrationWarning on <html> and <body> ONLY: browser extensions
+    // (Grammarly adds data-gr-ext-installed and data-new-gr-c-s-check-loaded)
+    // write attributes onto these two tags before React hydrates. It applies
+    // to these elements' own attributes, one level deep — a real mismatch
+    // anywhere inside the page is still reported.
+    <html
+      lang="en"
+      className={`${inter.variable} ${unbounded.variable}`}
+      suppressHydrationWarning
+    >
+      <body suppressHydrationWarning>
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

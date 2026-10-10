@@ -3,6 +3,7 @@
  * public/logos/nfl/.
  *
  * Run with: pnpm gen:teams
+ *      or:  pnpm gen:teams --colors-only   (recompute accents, keep the logos)
  *
  * Why a generator and not a runtime lookup:
  *
@@ -32,9 +33,14 @@ const TEAMS_URL =
 const logoUrl = (abbr) =>
   `https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/${abbr}.png`;
 
-/** Contrast floor for an accent against --bg. */
+/**
+ * Contrast floor for an accent against the CARD surface (--surface), which is
+ * where the logo rings are drawn. It is lighter than --bg (#0a0b0d), so an
+ * accent that clears it clears the page background too.
+ */
 export const CONTRAST_FLOOR = 3.2;
-const BG = "0a0b0d";
+const BG = "0f1012";
+const COLORS_ONLY = process.argv.includes("--colors-only");
 
 /* --- colour maths (sRGB <-> OKLab), no dependencies ---------------------- */
 
@@ -134,13 +140,15 @@ async function main() {
   for (const t of teams) {
     const abbr = t.abbreviation.toLowerCase();
     const url = logoUrl(abbr);
-    const img = await fetch(url);
-    if (!img.ok) {
-      // Fail loudly. A missing logo silently degrading to a blank square is
-      // how the WAS/wsh mismatch would have shipped unnoticed.
-      throw new Error(`Logo 404 for ${t.displayName} (${abbr}): ${url}`);
+    if (!COLORS_ONLY) {
+      const img = await fetch(url);
+      if (!img.ok) {
+        // Fail loudly. A missing logo silently degrading to a blank square is
+        // how the WAS/wsh mismatch would have shipped unnoticed.
+        throw new Error(`Logo 404 for ${t.displayName} (${abbr}): ${url}`);
+      }
+      await writeFile(resolve(LOGO_DIR, `${abbr}.png`), Buffer.from(await img.arrayBuffer()));
     }
-    await writeFile(resolve(LOGO_DIR, `${abbr}.png`), Buffer.from(await img.arrayBuffer()));
 
     const primary = (t.color || "").toLowerCase();
     const alternate = (t.alternateColor || primary).toLowerCase();
@@ -172,7 +180,7 @@ async function main() {
  * live feed.
  *
  * \`accent\` and \`alt\` are the brand colours LIFTED to clear ${CONTRAST_FLOOR}:1 against
- * --bg; \`raw\` is the untouched brand colour, kept only so a regression is
+ * the card surface (#${BG}); \`raw\` is the untouched brand colour, kept only so a regression is
  * auditable. Asserted by teams.contrast.test.ts.
  */
 
@@ -196,7 +204,7 @@ ${body}
 
   await writeFile(OUT, file);
   console.log(`Wrote ${rows.length} teams -> ${OUT}`);
-  console.log(`Logos -> ${LOGO_DIR}`);
+  console.log(COLORS_ONLY ? "Logos left as they are (--colors-only)" : `Logos -> ${LOGO_DIR}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

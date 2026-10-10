@@ -1,12 +1,15 @@
 /**
- * The generated team accents must stay legible on the app background.
+ * The generated team accents must stay legible on the card surface.
  *
  * This is a falsifiable monitor, not a unit test of the generator. Team brand
  * colours are third-party data: ESPN can change one at any time, and the next
- * `pnpm gen:teams` would quietly commit an accent nobody can see against
- * #0a0b0d. Measured incidence of a failure is currently zero — all 32 clear the
- * floor, with the worst at 3.21:1 — which is exactly why it is worth asserting
- * rather than assuming.
+ * `pnpm gen:teams` would quietly commit an accent nobody can see.
+ *
+ * Measured against #0f1012, the CARD (--surface), because that is where the
+ * logo rings are drawn. It used to be #0a0b0d, the page background; on the
+ * lighter card three accents (Giants, Colts, Bills) fell to 3.10:1, under the
+ * floor. Regenerated with the generator pointed at the card, all 32 clear it,
+ * and anything that clears the card also clears the darker page.
  *
  * The contrast function here is deliberately reimplemented instead of imported
  * from the generator: a test that borrows the code under test would agree with
@@ -19,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CONTRAST_FLOOR, TEAM_VISUALS } from "./teams.generated";
 
-const BACKGROUND = "#0a0b0d";
+const BACKGROUND = "#0f1012";
 const LOGO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../public/logos/nfl");
 
 function relativeLuminance(hex: string): number {

@@ -198,7 +198,7 @@ export function InfoPopover({ term }: { term: GlossaryKey }) {
               role="tooltip"
               className="rounded-md border border-border-lit bg-surface p-2.5 text-left shadow-[var(--shadow-panel)]"
             >
-              <span className="label block text-micro font-semibold text-dim">{entry.term}</span>
+              <span className="block text-micro font-semibold text-dim">{entry.term}</span>
               <span className="mt-1 block text-meta leading-[1.5] text-muted">{entry.short}</span>
               <Link
                 ref={moreLink}
@@ -249,7 +249,7 @@ export function InfoPopover({ term }: { term: GlossaryKey }) {
             moreLink.current?.focus();
           }
         }}
-        className={`tap flex h-[14px] w-[14px] items-center justify-center rounded-sm border text-[9px] leading-none transition-colors ${
+        className={`tap flex h-[16px] w-[16px] items-center justify-center rounded-sm border text-[12px] leading-none transition-colors ${
           open
             ? "border-signal text-signal"
             : "border-border-lit text-muted hover:border-signal hover:text-signal"

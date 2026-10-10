@@ -5,7 +5,7 @@
  * live feed.
  *
  * `accent` and `alt` are the brand colours LIFTED to clear 3.2:1 against
- * --bg; `raw` is the untouched brand colour, kept only so a regression is
+ * the card surface (#0f1012); `raw` is the untouched brand colour, kept only so a regression is
  * auditable. Asserted by teams.contrast.test.ts.
  */
 
@@ -24,19 +24,19 @@ export const CONTRAST_FLOOR = 3.2;
 
 export const TEAM_VISUALS: Record<string, TeamVisual> = {
   "Arizona Cardinals": { abbr: "ari", short: "Cardinals", accent: "#bd2a3a", alt: "#d7d7d7", raw: "#a40227" },
-  "Atlanta Falcons": { abbr: "atl", short: "Falcons", accent: "#b82e3e", alt: "#868686", raw: "#a71930" },
-  "Baltimore Ravens": { abbr: "bal", short: "Ravens", accent: "#5f56b5", alt: "#868686", raw: "#29126f" },
-  "Buffalo Bills": { abbr: "buf", short: "Bills", accent: "#2b5ebb", alt: "#d50a0a", raw: "#00338d" },
+  "Atlanta Falcons": { abbr: "atl", short: "Falcons", accent: "#bc3241", alt: "#868686", raw: "#a71930" },
+  "Baltimore Ravens": { abbr: "bal", short: "Ravens", accent: "#6159b9", alt: "#868686", raw: "#29126f" },
+  "Buffalo Bills": { abbr: "buf", short: "Bills", accent: "#2d61be", alt: "#d50a0a", raw: "#00338d" },
   "Carolina Panthers": { abbr: "car", short: "Panthers", accent: "#0085ca", alt: "#868686", raw: "#0085ca" },
-  "Chicago Bears": { abbr: "chi", short: "Bears", accent: "#4f6487", alt: "#e64100", raw: "#0b1c3a" },
+  "Chicago Bears": { abbr: "chi", short: "Bears", accent: "#52678b", alt: "#e64100", raw: "#0b1c3a" },
   "Cincinnati Bengals": { abbr: "cin", short: "Bengals", accent: "#fb4f14", alt: "#868686", raw: "#fb4f14" },
-  "Cleveland Browns": { abbr: "cle", short: "Browns", accent: "#7e5d3d", alt: "#ff3c00", raw: "#472a08" },
-  "Dallas Cowboys": { abbr: "dal", short: "Cowboys", accent: "#3b659c", alt: "#c4c4c4", raw: "#002a5c" },
-  "Denver Broncos": { abbr: "den", short: "Broncos", accent: "#486489", alt: "#fc4c02", raw: "#0a2343" },
+  "Cleveland Browns": { abbr: "cle", short: "Browns", accent: "#816040", alt: "#ff3c00", raw: "#472a08" },
+  "Dallas Cowboys": { abbr: "dal", short: "Cowboys", accent: "#3e689f", alt: "#c4c4c4", raw: "#002a5c" },
+  "Denver Broncos": { abbr: "den", short: "Broncos", accent: "#4b678c", alt: "#fc4c02", raw: "#0a2343" },
   "Detroit Lions": { abbr: "det", short: "Lions", accent: "#0076b6", alt: "#c6c6c6", raw: "#0076b6" },
-  "Green Bay Packers": { abbr: "gb", short: "Packers", accent: "#3f6d4f", alt: "#ffb612", raw: "#204e32" },
-  "Houston Texans": { abbr: "hou", short: "Texans", accent: "#52656f", alt: "#eb0028", raw: "#021018" },
-  "Indianapolis Colts": { abbr: "ind", short: "Colts", accent: "#2f63a1", alt: "#d7d7d7", raw: "#003b75" },
+  "Green Bay Packers": { abbr: "gb", short: "Packers", accent: "#427052", alt: "#ffb612", raw: "#204e32" },
+  "Houston Texans": { abbr: "hou", short: "Texans", accent: "#546772", alt: "#eb0028", raw: "#021018" },
+  "Indianapolis Colts": { abbr: "ind", short: "Colts", accent: "#3266a4", alt: "#d7d7d7", raw: "#003b75" },
   "Jacksonville Jaguars": { abbr: "jax", short: "Jaguars", accent: "#007487", alt: "#d7a22a", raw: "#007487" },
   "Kansas City Chiefs": { abbr: "kc", short: "Chiefs", accent: "#e31837", alt: "#ffb612", raw: "#e31837" },
   "Las Vegas Raiders": { abbr: "lv", short: "Raiders", accent: "#868686", alt: "#c1c1c1", raw: "#000000" },
@@ -44,15 +44,15 @@ export const TEAM_VISUALS: Record<string, TeamVisual> = {
   "Los Angeles Rams": { abbr: "lar", short: "Rams", accent: "#2b60c2", alt: "#ffd100", raw: "#003594" },
   "Miami Dolphins": { abbr: "mia", short: "Dolphins", accent: "#008e97", alt: "#fc4c02", raw: "#008e97" },
   "Minnesota Vikings": { abbr: "min", short: "Vikings", accent: "#7650b0", alt: "#ffc62f", raw: "#4f2683" },
-  "New England Patriots": { abbr: "ne", short: "Patriots", accent: "#3b659c", alt: "#c60c30", raw: "#002a5c" },
+  "New England Patriots": { abbr: "ne", short: "Patriots", accent: "#3e689f", alt: "#ca1433", raw: "#002a5c" },
   "New Orleans Saints": { abbr: "no", short: "Saints", accent: "#d3bc8d", alt: "#868686", raw: "#d3bc8d" },
-  "New York Giants": { abbr: "nyg", short: "Giants", accent: "#2c62a8", alt: "#c9243f", raw: "#003c7f" },
-  "New York Jets": { abbr: "nyj", short: "Jets", accent: "#2d6e56", alt: "#d7d7d7", raw: "#115740" },
-  "Philadelphia Eagles": { abbr: "phi", short: "Eagles", accent: "#356975", alt: "#868686", raw: "#06424d" },
+  "New York Giants": { abbr: "nyg", short: "Giants", accent: "#2f65ab", alt: "#c9243f", raw: "#003c7f" },
+  "New York Jets": { abbr: "nyj", short: "Jets", accent: "#307158", alt: "#d7d7d7", raw: "#115740" },
+  "Philadelphia Eagles": { abbr: "phi", short: "Eagles", accent: "#386c78", alt: "#868686", raw: "#06424d" },
   "Pittsburgh Steelers": { abbr: "pit", short: "Steelers", accent: "#868686", alt: "#ffb612", raw: "#000000" },
-  "San Francisco 49ers": { abbr: "sf", short: "49ers", accent: "#bf261c", alt: "#b3995d", raw: "#aa0000" },
-  "Seattle Seahawks": { abbr: "sea", short: "Seahawks", accent: "#3b659c", alt: "#69be28", raw: "#002a5c" },
+  "San Francisco 49ers": { abbr: "sf", short: "49ers", accent: "#c32a1f", alt: "#b3995d", raw: "#aa0000" },
+  "Seattle Seahawks": { abbr: "sea", short: "Seahawks", accent: "#3e689f", alt: "#69be28", raw: "#002a5c" },
   "Tampa Bay Buccaneers": { abbr: "tb", short: "Buccaneers", accent: "#c12139", alt: "#a2a2a2", raw: "#bd1c36" },
-  "Tennessee Titans": { abbr: "ten", short: "Titans", accent: "#4495d2", alt: "#496588", raw: "#4495d2" },
-  "Washington Commanders": { abbr: "wsh", short: "Commanders", accent: "#994d48", alt: "#ffb612", raw: "#5a1414" },
+  "Tennessee Titans": { abbr: "ten", short: "Titans", accent: "#4495d2", alt: "#4c678b", raw: "#4495d2" },
+  "Washington Commanders": { abbr: "wsh", short: "Commanders", accent: "#9c504b", alt: "#ffb612", raw: "#5a1414" },
 };

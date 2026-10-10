@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 /* Small shared pieces. Kept in one file because each is a handful of lines and
    splitting them would cost more navigation than it saves.
 
-   Typography rule applied throughout: a LABEL or a READING is mono (.label /
-   .tabular / .data), a SENTENCE is sans. That split is what carries the
-   terminal identity — the colour alone would just be a reskin. */
+   Typography: everything here is Inter, in sentence case. Readings add
+   `.tabular` so digits line up; only the display numbers on a card use the
+   Unbounded `.display` face (see globals.css). */
 
 export function Card({
   children,
@@ -48,7 +48,7 @@ export function Badge({
   return (
     <span
       title={title}
-      className={`label inline-flex items-center gap-1 rounded-sm border px-1.5 py-[3px] text-micro leading-none ${TONES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-[3px] text-micro leading-none ${TONES[tone]}`}
     >
       {children}
     </span>
@@ -92,7 +92,7 @@ export function Metric({
   const missing = value === "—";
   return (
     <div title={title} className="min-w-0">
-      <div className="label text-micro text-muted">{label}</div>
+      <div className="text-micro text-muted">{label}</div>
       <div
         className={`tabular mt-[3px] text-body ${
           missing ? "text-faint" : negative ? "text-neg" : "text-text"
@@ -107,7 +107,7 @@ export function Metric({
 export function SectionHeading({ children, note }: { children: ReactNode; note?: string }) {
   return (
     <div className="mb-3">
-      <h3 className="label text-meta font-semibold text-dim">{children}</h3>
+      <h3 className="text-meta font-semibold text-dim">{children}</h3>
       {note ? <p className="prose mt-1 text-meta leading-relaxed text-muted">{note}</p> : null}
     </div>
   );

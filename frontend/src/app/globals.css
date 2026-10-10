@@ -1,110 +1,121 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Arbitrium design system — TERMINAL AMBER
+   Arbitrium design system — GRAPHITE AND LIME
    ----------------------------------------------------------------------------
-   A warm monochrome: near-black warm surfaces, cream text, and ONE accent.
+   Neutral graphite surfaces, off-white text, and ONE accent.
 
-   The rule that governs colour here is unchanged from the crimson system that
-   preceded it; only the hue executing it changed:
+   The rule that governs colour is the same one the amber and crimson systems
+   ran on; only the hue executing it changed:
 
-     AMBER MEANS SIGNAL, NOT DECORATION.
+     LIME MEANS SIGNAL, NOT DECORATION.
 
-   Amber marks a recommendation, an arbitrage, or a gain. Nothing neutral and
-   nothing negative is ever allowed to borrow it — a negative metric, a losing
-   leg and an unscoreable event all drop to warm grey, because an accent that
-   appears on both good and bad numbers stops meaning anything. Warm grey, not
-   cool: amber must be the only warm thing on the page, so the greys carry a
-   slight warm undertone and nothing else competes for attention as "colour".
+   Lime marks a recommendation, an arbitrage, a link, or money won. Nothing
+   neutral is allowed to borrow it — a negative metric and an unscoreable event
+   drop to graphite grey, because an accent that appears on everything stops
+   meaning anything. The greys are near-achromatic (a faint cool cast at most),
+   so lime is the only saturated thing at rest on the page.
 
-   THREE reserved channels sit outside the accent, each for a statement amber
-   cannot make:
+   Reserved channels outside the accent, each for a statement lime cannot make:
 
-     --warn       "we are not sure / this is thin"  — a muted rust
-     --status-ok  "the system is alive"             — a teal-green
-     --consensus  the second chart series           — a low-chroma slate
+     --loss       money lost if a bet loses          — a red
+     --warn       "this is thin / capped"            — an orange
+     --error      "that input can't be used"         — a coral
+     --status-ok  "the system is alive"              — a teal
+     --consensus  the second chart series            — a blue
+
+   Win and loss are never told apart by colour alone: every money figure keeps
+   its +/− sign and a text label ("If they lose, you win"), because lime and red
+   are exactly the pair a red-green-deficient reader can confuse.
 
    Every value below is checked by src/lib/palette.test.ts, which reads THIS
-   file and fails on contrast, colour-vision separation or a grey that drifts
-   cool. Do not hand-tune a value without running it.
+   file and fails on contrast, colour-vision separation or a grey that picks up
+   chroma. Do not hand-tune a value without running it.
    ========================================================================= */
 
 :root {
-  /* --- surfaces: five steps, warm near-black (never pure black) --- */
-  --bg: #0b0a09;
-  --surface: #141210;
-  --surface-raised: #1a1714;
-  --surface-sunken: #0e0c0b;
-  --border: #2a2521;
-  --border-lit: #3a342e;
+  /* --- surfaces: graphite, never pure black ---
+     --surface is the card; --surface-raised is anything set INTO a card (the
+     bet box, outcome tiles, chips). */
+  --bg: #0a0b0d;
+  --surface: #0f1012;
+  --surface-raised: #17181b;
+  --surface-sunken: #0c0d0f;
+  --border: #25272b;
+  --border-lit: #33363c;
+  /* 3.8:1 against the card: an input's outline must clear WCAG's 3:1 for UI
+     component boundaries, which the original #2c2e33 (1.4:1) did not. */
+  --border-input: #6b7079;
 
-  /* --- text: four steps, cream through warm grey ---
-     Nothing below --muted carries real content. --faint is for provenance and
-     punctuation only, and is the one step that does not clear 4.5:1. */
-  --text: #f2ede4;
-  --text-dim: #b3aa9c;
-  --muted: #868075;
-  --faint: #55504a;
+  /* --- text: four steps ---
+     All four clear 4.5:1 on every surface, --faint included (4.55:1 on the
+     raised surface, its worst case). The amber system kept --faint below 4.5
+     for punctuation only; here the tertiary step carries real content (date
+     lines, footnotes), so it is held to the body-text bar instead. */
+  --text: #f2f3f0;
+  --text-dim: #b9bcc4;
+  --muted: #9a9ea6;
+  --faint: #7d818a;
 
-  /* --- amber signal ramp --- */
-  --signal-100: #fdf3d8;
-  --signal-300: #f7d989;
-  --signal-500: #f2c14e; /* primary action / "buy" */
-  --signal-600: #d9a93f; /* signal text and links on dark */
-  --signal-800: #7d6222; /* dimmed strokes, badge borders */
-  --signal-950: #211a0a; /* tinted fills */
+  /* --- lime signal ramp --- */
+  --signal-500: #c6f432; /* primary action, pick pill, bet input, links */
+  --signal-600: #c6f432; /* signal text on dark — lime is light enough as-is */
+  --signal-800: #5f7a16; /* dimmed strokes, badge borders (3.9:1) */
+  --signal-950: #1a2306; /* tinted fills */
 
   /* Arbitrage is a different product and keeps its own, hotter variant plus a
      glow nothing else uses. The separation is STRUCTURAL — a fenced panel, its
-     own border, the word itself — not chromatic: a hue far from amber would
-     have implied arbitrage is not signal, and it is. This mirrors exactly what
-     the crimson system did with a hotter red. */
-  --arb: #ffa62e;
-  --arb-glow: rgb(255 166 46 / 0.10);
+     own border, the word itself — not chromatic: a hue far from lime would
+     imply arbitrage is not signal, and it is. */
+  --arb: #e2ff6b;
+  --arb-glow: rgb(226 255 107 / 0.08);
 
-  /* --- non-signal semantics --- */
-  --gain: #edb945; /* money won — amber family, per the rule above */
-  --loss: #8a8279; /* money lost — deliberately NOT amber */
-  --neg: #8a8279; /* a negative metric */
-  --warn: #cf6f4a; /* uncertainty, thin data, provisional */
+  /* --- money and other semantics --- */
+  --gain: #c6f432; /* money won — the accent itself, per the rule above */
+  --loss: #ff5a4f; /* money lost if the bet loses */
+  --neg: #9a9ea6; /* a negative METRIC — grey, not red: it is not a loss */
+  --warn: #ffb86b; /* thin data, capped availability */
+  --error: #ff9a7a; /* an input that cannot be used */
 
-  /* Status is a RESERVED channel, never the signal accent. An amber dot beside
-     the word "fresh" reads as an alert no matter what the palette intends, so
-     system health gets its own teal-green — used only for status, never for a
-     data series or a money figure. */
-  --status-ok: #3fae9e;
-  --neutral: #6b645c;
+  /* Status is a RESERVED channel, never the accent. A lime dot beside "fresh"
+     would read as a recommendation, so system health gets its own teal —
+     used only for status, never for a data series or a money figure. */
+  --status-ok: #2fc6b0;
+  --neutral: #6b7079;
 
   /* --- data-viz series (event detail, performance) ---
      Kalshi carries the accent because it is the subject of every chart. The
-     consensus is a low-chroma slate: the only cool thing in the system, which
-     is what makes it legible against amber for the ~8% of readers with
-     red-green deficiency. Separation is by hue angle AND chroma, never by a
-     red/green pairing. Validated in palette.test.ts — normal ΔE 21.9,
-     protan 19.8, deutan 23.0, both ≥3:1 on the chart surface. */
-  --series-kalshi: #f2c14e;
-  --series-consensus: #8fa3b8;
-  --series-grid: #221e1a;
-  --series-reference: #55504a; /* perfect-calibration diagonal, ideal lines */
+     consensus is a mid-chroma blue: far from lime in hue AND chroma, so it
+     separates for the ~8% of readers with red-green deficiency. Validated in
+     palette.test.ts — normal ΔE 34.1, protan 33.9, deutan 34.1, chroma gap
+     0.084, both ≥3:1 on the chart surface. */
+  --series-kalshi: #c6f432;
+  --series-consensus: #7fb2ff;
+  --series-grid: #1d1f23;
+  --series-reference: #6b7079; /* perfect-calibration diagonal, ideal lines */
 
   /* --- type stacks ---
-     `--font-data` is set by next/font on <html>, and it is the face for the
-     whole app: readout and prose alike. --stack-sans is kept as the fallback
-     of last resort for anything that must not be mono; nothing uses it today.
+     `--font-sans` (Inter) and `--font-display` (Unbounded) are set by next/font
+     on <html>; both are bundled at build time, so the browser never fetches
+     from Google.
 
-     These carry NO undefined variables. An earlier version had
-     `--font-sans: var(--font-voice), ui-sans-serif, ...` with --font-voice
-     never defined, which makes the whole declaration invalid at computed-value
-     time — a silent failure worth not reintroducing. */
-  --stack-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", sans-serif;
-  --stack-mono: var(--font-data, ui-monospace), ui-monospace, "SF Mono", Menlo,
-    monospace;
+     Inter is the face for everything. Unbounded is reserved for the few
+     numbers and words a glance should land on — a card's headline, the bet,
+     the outcome figures — and only at weights 400 and 500.
+
+     These carry NO undefined variables: each falls back to a system stack, so
+     a missing next/font variable degrades to a system face instead of making
+     the whole declaration invalid at computed-value time. */
+  --stack-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --stack-display: var(--font-unbounded, var(--font-inter, ui-sans-serif)), ui-sans-serif,
+    system-ui, sans-serif;
 
   /* --- shape & depth --- */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 8px;
+  --r-card: 10px;
   --r-full: 999px;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
   --shadow-panel: 0 24px 64px -12px rgb(0 0 0 / 0.75);
@@ -132,6 +143,7 @@
   --color-sunken: var(--surface-sunken);
   --color-border: var(--border);
   --color-border-lit: var(--border-lit);
+  --color-border-input: var(--border-input);
 
   --color-text: var(--text);
   --color-dim: var(--text-dim);
@@ -148,6 +160,7 @@
   --color-loss: var(--loss);
   --color-neg: var(--neg);
   --color-warn: var(--warn);
+  --color-error: var(--error);
   --color-status-ok: var(--status-ok);
   --color-neutral: var(--neutral);
 
@@ -157,6 +170,7 @@
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
+  --radius-card: var(--r-card);
 
   /* --- type scale ---
      Seven steps, and only seven. The card previously used eleven ad-hoc sizes,
@@ -173,31 +187,36 @@
        micro    — provenance, timestamps, footnotes.
 
      If something needs a size between two of these, it needs a different
-     weight or colour instead. */
-  --text-lede: 19px;
-  --text-lede--line-height: 1.25;
+     weight or colour instead.
+
+     FLOOR: nothing under 12px anywhere (micro), 13px for secondary text
+     (meta), 14px for body. The amber scale went down to 10px, which read as
+     noise at the top of the page. Enforced by src/lib/typography.test.ts. */
+  --text-lede: 20px;
+  --text-lede--line-height: 1.3;
   --text-lede--letter-spacing: -0.01em;
-  --text-headline: 17px;
+  --text-headline: 18px;
   --text-headline--line-height: 1.3;
   --text-headline--letter-spacing: -0.01em;
   --text-display: 30px;
   --text-display--line-height: 1;
   --text-display--letter-spacing: -0.02em;
-  --text-title: 15px;
+  --text-title: 16px;
   --text-title--line-height: 1.3;
-  --text-body: 13px;
+  --text-body: 14px;
   --text-body--line-height: 1.6;
-  --text-meta: 11.5px;
+  --text-meta: 13px;
   --text-meta--line-height: 1.45;
-  --text-micro: 10px;
+  --text-micro: 12px;
   --text-micro--line-height: 1.4;
 
   /* Both stacks are defined as ordinary tokens on :root (see --stack-* above)
      and merely re-exported here. Declaring them only inside `@theme inline`
      would make them available to Tailwind utilities but NOT as real custom
-     properties, so a hand-written rule like `.prose` could not read them. */
+     properties, so a hand-written rule like `.prose` could not read them.
+     `font-display` is the Unbounded utility; there is deliberately no mono. */
   --font-sans: var(--stack-sans);
-  --font-mono: var(--stack-mono);
+  --font-display: var(--stack-display);
 }
 
 /* This product is dark-only by design — the palette carries meaning that a
@@ -223,61 +242,53 @@ html {
 }
 
 /* ============================================================================
-   TYPOGRAPHY: the terminal identity lives here, not only in the colour.
+   TYPOGRAPHY: two faces, with a hard boundary between them.
 
-   ONE face, everywhere: the mono. Prices, probabilities, counts, team names,
-   status words, timestamps, labels, buttons, tabs — and the explainers too.
+   INTER is the default for everything — prose, labels, buttons, tabs, prices
+   in running text. It is set on <body>, so anything overlooked falls back to
+   Inter rather than to a third face. (The amber system made the same argument
+   for mono: the default must be the common case, never opt-in per element.)
 
-   A previous version reserved a system sans for long-form prose, on the theory
-   that mono reads slower and the caveats must not be skipped. In practice the
-   two faces read as two different products: the landing lede and the
-   How-it-works page looked pasted in from somewhere else, which undercuts the
-   caveats rather than protecting them. The readability concern is now handled
-   where it belongs — tracking, line-height, and measure on `.prose` — instead
-   of by switching family.
-
-   Mono is still the DEFAULT rather than a class applied per call site. An
-   earlier version opted IN to mono per element, so anything overlooked fell
-   silently back to sans — which is exactly how tile labels ended up sans while
-   the values under them were mono.
+   UNBOUNDED is opt-in, via `.display`, and only for what a glance should land
+   on: a card's headline, the bet amount, the two outcome figures, page-level
+   headings. Two weights only, 400 and 500 — the face is wide and heavy enough
+   that anything bolder turns a number into a logo.
    ========================================================================= */
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--stack-mono);
-  letter-spacing: -0.01em;
+  font-family: var(--stack-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Long-form prose. Same mono face as the rest of the app — the split face read
-   as two products bolted together, and the explainer is the one place a reader
-   most needs to feel they are still inside the instrument.
-
-   What survives from the sans version is the READABILITY tuning, which is the
-   part that was actually doing the work: mono at the body's -0.01em tracking
-   sets too tight for paragraphs, so tracking returns to normal here. Measure is
-   still capped at the call site in `ch`, which tracks the wider mono advance on
-   its own. */
+/* Long-form prose: Inter at normal tracking. Measure is capped at the call
+   site in `ch`. */
 .prose {
-  font-family: var(--stack-mono);
+  font-family: var(--stack-sans);
   letter-spacing: normal;
 }
 
-/* Numbers. Adds tabular figures so columns of prices line up; the face is
-   already mono from the body. */
+/* Numbers. Tabular figures so columns of prices line up. Face is inherited:
+   Inter in running text, Unbounded inside `.display`. */
 .tabular {
   font-variant-numeric: tabular-nums;
-  font-family: var(--stack-mono);
+}
+
+/* The display face. Weight is clamped to the two that are bundled; a
+   `font-semibold` reaching an Unbounded element would otherwise be
+   synthesised by the browser rather than drawn by the font. */
+.display {
+  font-family: var(--stack-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.display-medium {
+  font-family: var(--stack-display);
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
-/* A field label in a terminal: small, uppercase, tracked out. */
-.label {
-  font-family: var(--stack-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-}
 
 /* Focus is visible everywhere; the app is dense and keyboard use is expected. */
 :focus-visible {
@@ -290,23 +301,40 @@ body {
    TOUCH
    ========================================================================= */
 
-/* Guarantees a 44px hit area on touch devices WITHOUT inflating the visual
-   element — the padding is projected by a pseudo-element, so a 13px star still
-   looks like a 13px star and still takes a thumb. Only applied where a pointer
-   is coarse, so mouse layouts stay dense. */
+/* Guarantees a minimum hit area WITHOUT inflating the visual element — the
+   area is projected by a pseudo-element, so a 16px "?" still looks like a 16px
+   "?" and still takes a thumb.
+
+   Two floors: 24px for a mouse (WCAG 2.5.8's minimum target size) and 44px
+   where the pointer is coarse. The mouse floor used to be zero — `.tap` only
+   did anything on touch — which left the follow "+", the "?" buttons and the
+   footer links under 24px for desktop users. */
+.tap {
+  position: relative;
+}
+.tap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 24px);
+  height: max(100%, 24px);
+  transform: translate(-50%, -50%);
+}
 @media (pointer: coarse) {
-  .tap {
-    position: relative;
-  }
   .tap::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
     width: max(100%, var(--tap));
     height: max(100%, var(--tap));
-    transform: translate(-50%, -50%);
   }
+}
+
+/* Inline code in prose stays in the app's face. Browsers default <code> to
+   monospace, which was the last mono on the page (on /combos). */
+code,
+kbd,
+samp,
+pre {
+  font-family: inherit;
 }
 
 /* iOS Safari zooms the viewport when a focused input's text is under 16px.
@@ -370,7 +398,7 @@ body {
   color: var(--text);
 }
 
-/* An actionable card earns a faint warm wash from its top edge — enough to
+/* An actionable card earns a faint lime wash from its top edge — enough to
    separate it from the "nothing to do here" majority at a glance, without
    another border or badge competing inside the card. */
 .card-actionable {
@@ -409,4 +437,129 @@ details.why[open] > summary .why-chevron {
 }
 .why-chevron {
   transition: transform var(--t-fast) var(--ease);
+}
+
+/* ============================================================================
+   THE RECOMMENDATION CARD
+   ----------------------------------------------------------------------------
+   Sized to sit in the same three-column grid as the "Interesting right now"
+   tiles, so a card is exactly a tile's width on desktop.
+
+   The rank order is enforced by the numbers, not by hope:
+
+     headline  clamp(24px, 1.9vw, 26px)   — always the largest thing
+     bet       22px
+     outcomes  20px
+
+   The headline's FLOOR (24px) sits above the bet number, so the order holds at
+   every width. (The starting spec floored it at 20px, which would have put it
+   under the 22px bet number on any viewport narrower than ~1050px.)
+   ========================================================================= */
+
+.card {
+  container-type: inline-size;
+  background-color: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 17px;
+}
+
+.card-headline {
+  font-size: clamp(24px, 1.9vw, 26px);
+  line-height: 1.15;
+  letter-spacing: -0.3px;
+  text-wrap: balance;
+}
+
+.bet-amount {
+  font-size: 22px;
+}
+.bet-dollar {
+  font-size: 19px;
+}
+.outcome-figure {
+  font-size: 20px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* Side by side while BOTH figures fit whole; stacked the moment one would not.
+   Each tile's min-width is its min-content — the figure, which never wraps,
+   plus padding — and flex-wrap breaks the line when the two minimums plus the
+   gap exceed the card. Keyed to the actual numbers rather than a breakpoint,
+   so "+$1,880.04" stacks in a card where "+$82.35" would not. Both figures are
+   always visible; nothing scrolls inside the card. */
+.outcome-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.outcome-tile {
+  flex: 1 1 0;
+  min-width: min-content;
+}
+
+/* Header: both teams on one line when they fit; the home side wraps under the
+   away side when they do not. */
+.matchup-lg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+}
+
+/* --- the bet slider ---
+   44px tall so it is a real touch target, with a thin visible track inside.
+   Native <input type="range">, so arrow keys, Home/End and screen-reader
+   value announcements come from the platform. */
+.bet-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+.bet-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: linear-gradient(
+    to right,
+    var(--signal-500) 0 var(--fill, 0%),
+    var(--border-input) var(--fill, 0%) 100%
+  );
+}
+.bet-slider::-moz-range-track {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--border-input);
+}
+.bet-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--signal-500);
+}
+.bet-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border-radius: var(--r-full);
+  background: var(--signal-500);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--signal-500);
+}
+.bet-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  background: var(--signal-500);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--signal-500);
+}
+.bet-slider:focus-visible {
+  outline-offset: 0;
 }
