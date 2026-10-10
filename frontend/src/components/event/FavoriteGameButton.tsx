@@ -8,7 +8,8 @@
  * which makes the state legible in a scan without reading the star.
  *
  * `lg` is the recommendation card's 36×36 bordered button; `sm` is the bare
- * glyph used in denser places. Both expand to a 44px hit area on touch (.tap).
+ * glyph used in denser places; `md` is that glyph in a 36×36 button, for the
+ * dashboard rows. All expand to a 44px hit area on touch (.tap).
  */
 export function FavoriteGameButton({
   label,
@@ -20,7 +21,7 @@ export function FavoriteGameButton({
   label: string;
   favorited: boolean;
   onToggle: () => void;
-  size?: "sm" | "lg";
+  size?: "sm" | "md" | "lg";
 }) {
   const common = {
     type: "button" as const,
@@ -53,6 +54,19 @@ export function FavoriteGameButton({
             strokeLinejoin="round"
           />
         </svg>
+      </button>
+    );
+  }
+
+  if (size === "md") {
+    return (
+      <button
+        {...common}
+        className={`tap relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[18px] leading-none transition-colors ${
+          favorited ? "text-signal" : "text-faint hover:text-dim"
+        }`}
+      >
+        <span aria-hidden>{favorited ? "★" : "☆"}</span>
       </button>
     );
   }

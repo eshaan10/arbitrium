@@ -249,3 +249,15 @@ describe("lime is the only saturated thing at rest on the page", () => {
     expect(h).toBeLessThan(300);
   });
 });
+
+describe("dashboard rows", () => {
+  it("row text clears 4.5:1 on the row surface", () => {
+    for (const name of ["text", "muted", "faint", "row-muted"]) {
+      expect(contrast(token(name), token("row-surface")), `--${name}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("an open row's border clears 3:1 against the page", () => {
+    expect(contrast(token("row-open-border"), BG())).toBeGreaterThanOrEqual(3);
+  });
+});

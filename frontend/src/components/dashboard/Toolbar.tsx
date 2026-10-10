@@ -3,6 +3,7 @@
 import { ModeToggle, SportTabs, ViewFilter, type View } from "./Controls";
 import { SearchBar } from "./SearchBar";
 import { RecentlyViewed } from "./RecentlyViewed";
+import { DensityToggle } from "./DensityToggle";
 import type { Mode } from "@/lib/mode";
 
 /**
@@ -66,6 +67,13 @@ export function Toolbar({
           <SearchBar value={search} onChange={onSearch} resultCount={resultCount} />
           <RecentlyViewed />
           <ModeToggle mode={mode} />
+          {/* The phone's density toggle shares the search line rather than
+              taking the header: at 390px the wordmark, four nav links and the
+              status dot already fill the header, and a line of its own here
+              would come straight out of the list below. */}
+          <div className="md:hidden">
+            <DensityToggle compact />
+          </div>
         </div>
       </div>
 
@@ -91,6 +99,10 @@ export function Toolbar({
         >
           {stamp}
         </span>
+        {/* From 768px up; on a phone the compact form sits on the search line. */}
+        <div className="hidden shrink-0 md:block">
+          <DensityToggle />
+        </div>
       </div>
     </div>
   );

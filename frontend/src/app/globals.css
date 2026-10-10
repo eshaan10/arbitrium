@@ -131,6 +131,16 @@
      row is a hidden one. The fade is always paired with an explicit label. */
   --fade-floor: 0.62;
 
+  /* --- dashboard rows (the Rows density) ---
+     A row sits one step above a card so a dense list still separates from
+     the page; its border is a notch brighter than a card's for the same
+     reason, and an OPEN row takes the input outline. --row-muted is the
+     secondary price line ("Books 27¢"). Checked in palette.test.ts. */
+  --row-surface: #16171a;
+  --row-border: #2c2e33;
+  --row-open-border: #6b7079;
+  --row-muted: #a2a9b4;
+
   /* Touch targets. Pointer-coarse devices get 44px; a mouse does not need it
      and the layout is denser without. Used by .tap below. */
   --tap: 44px;
@@ -562,4 +572,19 @@ details.why[open] > summary .why-chevron {
 }
 .bet-slider:focus-visible {
   outline-offset: 0;
+}
+
+/* ============================================================================
+   DASHBOARD ROWS (the Rows density, see EventRow)
+   ========================================================================= */
+
+.event-row {
+  background-color: var(--row-surface);
+}
+
+/* The order, as a tinted pill rather than the card's solid one: in a column
+   of rows a solid lime block on every line would outshout the headline. */
+.row-pill {
+  background-color: color-mix(in srgb, var(--signal-500) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--signal-500) 35%, transparent);
 }

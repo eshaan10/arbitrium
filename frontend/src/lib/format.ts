@@ -125,6 +125,20 @@ export function titleCase(s: string | null | undefined): string {
  * is shown instead: "Buy Yes · 21¢ — sportsbooks say 21¢" reads as no edge at
  * all, when the real figures are 21¢ against 21.4¢.
  */
+/**
+ * The gap between the sportsbooks' fair value and the Kalshi price, signed:
+ * "+2¢". Same rounding rule as `fairValueCents`, so the chip agrees with the
+ * two prices printed beside it — a gap that rounds to nothing shows one
+ * decimal rather than a misleading "+0¢".
+ */
+export function edgeCents(fair: number | null | undefined, price: number | null | undefined): string {
+  if (fair == null || price == null || Number.isNaN(fair) || Number.isNaN(price)) return DASH;
+  const diff = (fair - price) * 100;
+  const sign = diff < 0 ? "−" : "+";
+  const whole = Math.round(Math.abs(diff));
+  return whole === 0 ? `${sign}${Math.abs(diff).toFixed(1)}¢` : `${sign}${whole}¢`;
+}
+
 export function fairValueCents(fair: number | null | undefined, price: number | null | undefined): string {
   if (fair == null || Number.isNaN(fair)) return DASH;
   if (price != null && Math.round(fair * 100) === Math.round(price * 100)) {

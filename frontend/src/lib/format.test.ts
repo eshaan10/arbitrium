@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fairValueCents, kickoff, kickoffFixed, timeToKickoffLong } from "./format";
+import { edgeCents, fairValueCents, kickoff, kickoffFixed, timeToKickoffLong } from "./format";
 
 /**
  * A falsifiable monitor for the kickoff hydration bug.
@@ -101,5 +101,20 @@ describe("fair value beside a price", () => {
   });
   it("is a dash when missing", () => {
     expect(fairValueCents(null, 0.21)).toBe("—");
+  });
+});
+
+describe("edgeCents", () => {
+  it("is the signed gap in whole cents", () => {
+    expect(edgeCents(0.27, 0.26)).toBe("+1¢");
+    expect(edgeCents(0.41, 0.39)).toBe("+2¢");
+    expect(edgeCents(0.3, 0.32)).toBe("−2¢");
+  });
+  it("shows one decimal rather than +0¢", () => {
+    expect(edgeCents(0.2141, 0.21)).toBe("+0.4¢");
+  });
+  it("is a dash when either side is missing", () => {
+    expect(edgeCents(null, 0.21)).toBe("—");
+    expect(edgeCents(0.21, null)).toBe("—");
   });
 });

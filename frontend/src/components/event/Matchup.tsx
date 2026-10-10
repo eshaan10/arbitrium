@@ -71,6 +71,38 @@ function Side({
 }
 
 /**
+ * A team's mark in a circle whose 2px ring carries the team accent. The logo
+ * sits at two thirds of the circle. `cutout` adds an outer ring in the given
+ * colour, so two logos can overlap and still read as two (the dashboard rows).
+ */
+export function TeamLogo({
+  visual,
+  accent,
+  size = 30,
+  cutout,
+}: {
+  visual: TeamVisual | null;
+  accent: string;
+  size?: number;
+  cutout?: string;
+}) {
+  const img = Math.round((size * 2) / 3);
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center rounded-full bg-raised"
+      style={{
+        width: size,
+        height: size,
+        boxShadow: `inset 0 0 0 2px ${accent}${cutout ? `, 0 0 0 2px ${cutout}` : ""}`,
+      }}
+    >
+      {visual ? <Image src={logoPath(visual)} alt="" width={img} height={img} /> : null}
+    </span>
+  );
+}
+
+/**
  * The header for a recommendation card: a 30px logo circle whose 2px ring
  * carries the team accent, and the name at 16px.
  *
@@ -96,15 +128,7 @@ function SideLarge({
 }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span
-        aria-hidden
-        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-raised"
-        style={{ boxShadow: `inset 0 0 0 2px ${accent}` }}
-      >
-        {visual ? (
-          <Image src={logoPath(visual)} alt="" width={20} height={20} />
-        ) : null}
-      </span>
+      <TeamLogo visual={visual} accent={accent} />
       <span
         className={`min-w-0 truncate text-[16px] leading-tight ${
           strong ? "font-medium text-text" : "font-normal text-dim"

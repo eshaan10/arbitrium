@@ -319,6 +319,27 @@ export function useFavoriteGames() {
   return { favoriteGames: value, pinnedIds, toggleFavoriteGame, isFavoriteGame, ready };
 }
 
+/* --- list density -------------------------------------------------------- */
+
+export type Density = "cards" | "rows";
+export const DENSITY_KEY = "arbitrium:density:v1";
+/** Rows at every width. Cards stays one tap away in the density toggle. */
+export const DEFAULT_DENSITY: Density = "rows";
+
+/**
+ * Cards or rows for the dashboard list. Read through the same external store
+ * as everything else here, so the server and the hydration pass both render
+ * the default and the stored choice arrives straight after — and the header
+ * toggle (phone) and the toolbar toggle (desktop) can never disagree.
+ * Anything unrecognised in storage falls back to the default.
+ */
+export function useDensity() {
+  const raw = useRawItem(DENSITY_KEY);
+  const density: Density = raw === "cards" || raw === "rows" ? raw : DEFAULT_DENSITY;
+  const setDensity = useCallback((next: Density) => writeRaw(DENSITY_KEY, next), []);
+  return { density, setDensity };
+}
+
 /* --- recently viewed ----------------------------------------------------- */
 
 export interface RecentEvent {

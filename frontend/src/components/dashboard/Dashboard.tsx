@@ -14,6 +14,7 @@ import { groupEvents } from "@/lib/grouping";
 import { matchesTeamQuery } from "@/lib/teams";
 import { netMovesByEvent } from "@/lib/moves";
 import {
+  useDensity,
   useFavoriteGames,
   useFollowedTeams,
   useRecentlyViewed,
@@ -23,6 +24,7 @@ import { useIsClient } from "@/lib/useIsClient";
 import { recSignature } from "@/lib/changes";
 import { shouldFold, splitFoldable } from "@/lib/fold";
 import { EventCard } from "@/components/event/EventCard";
+import { EventRow } from "@/components/event/EventRow";
 import { EmptyState } from "@/components/primitives";
 import { type View } from "./Controls";
 import { Toolbar } from "./Toolbar";
@@ -62,6 +64,9 @@ export function Dashboard({
 }) {
   const isClient = useIsClient();
   const [search, setSearch] = useState("");
+  const { density } = useDensity();
+  // One open row at a time, across every group.
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const {
     followedTeams,
@@ -165,6 +170,16 @@ export function Dashboard({
 
   const foldUnscoreable = shouldFold(view, search);
 
+  const recordOpen = (ev: Divergence) =>
+    record({
+      id: ev.event_id,
+      home: ev.home_team,
+      away: ev.away_team,
+      sport: ev.sport,
+      rec: recSignature(ev),
+      arb: ev.is_arbitrage,
+    });
+
   return (
     <div className="space-y-10">
       <LandingExplainer />
@@ -239,35 +254,45 @@ export function Dashboard({
                       {group.events.length}
                     </span>
                   </h2>
-                  {/* Same container and gutter as the three "Interesting right now"
-                      tiles, so on desktop each card is exactly a tile's width.
-                      `items-start`: a quiet card is as tall as its content, not
-                      stretched to match a recommendation card beside it. */}
-                  <div className="grid items-start gap-3 min-[720px]:grid-cols-2 lg:grid-cols-3">
-                    {shown.map((d) => (
-                      <EventCard
-                        key={d.event_id}
-                        d={d}
-                        minBooks={minBooks}
-                        mode={mode}
-                        isFollowed={isFollowed}
-                        onToggleFollow={toggleFollow}
-                        isFavoriteGame={isFavoriteGame(d.event_id)}
-                        onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
-                        move={moves.get(d.event_id)}
-                        onOpen={(ev) =>
-                          record({
-                            id: ev.event_id,
-                            home: ev.home_team,
-                            away: ev.away_team,
-                            sport: ev.sport,
-                            rec: recSignature(ev),
-                            arb: ev.is_arbitrage,
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
+                  {density === "rows" ? (
+                    <div className="flex flex-col gap-2">
+                      {shown.map((d) => (
+                        <EventRow
+                          key={d.event_id}
+                          d={d}
+                          minBooks={minBooks}
+                          mode={mode}
+                          isFavoriteGame={isFavoriteGame(d.event_id)}
+                          onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
+                          move={moves.get(d.event_id)}
+                          onOpen={recordOpen}
+                          open={openRow === d.event_id}
+                          onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Same container and gutter as the three "Interesting right now"
+                    // tiles, so on desktop each card is exactly a tile's width.
+                    // `items-start`: a quiet card is as tall as its content, not
+                    // stretched to match a recommendation card beside it.
+                    <div className="grid items-start gap-3 min-[720px]:grid-cols-2 lg:grid-cols-3">
+                      {shown.map((d) => (
+                        <EventCard
+                          key={d.event_id}
+                          d={d}
+                          minBooks={minBooks}
+                          mode={mode}
+                          isFollowed={isFollowed}
+                          onToggleFollow={toggleFollow}
+                          isFavoriteGame={isFavoriteGame(d.event_id)}
+                          onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
+                          move={moves.get(d.event_id)}
+                          onOpen={recordOpen}
+                        />
+                      ))}
+                    </div>
+                  )}
                   <UnscoreableGroup events={folded} minBooks={minBooks} />
                 </section>
                 );
