@@ -5,8 +5,8 @@ import type { EventHistory, Outcome } from "@/lib/types";
 function Row({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div title={title} className="flex items-baseline justify-between gap-3 py-1">
-      {/* A field name, not a sentence — so it takes the mono stack alongside
-          its reading, and the pair lines up as one instrument row. */}
+      {/* A field name and its reading, one row; the reading uses tabular
+          figures so a column of them lines up. */}
       <span className="text-meta text-muted">{label}</span>
       <span className="tabular text-meta text-text">{value}</span>
     </div>
@@ -42,7 +42,7 @@ export function OutcomeSection({
               className="h-[2px] w-4"
               style={{ background: "var(--series-kalshi)" }}
             />
-            <span className="label text-micro text-muted">Kalshi</span>
+            <span className="text-micro text-muted">Kalshi</span>
           </div>
           <Row label="Implied" value={pct(o.kalshi_probability)} />
           {o.kalshi_ask != null ? (
@@ -70,7 +70,7 @@ export function OutcomeSection({
               className="h-[2px] w-4"
               style={{ background: "var(--series-consensus)" }}
             />
-            <span className="label text-micro text-muted">
+            <span className="text-micro text-muted">
               Sportsbook consensus
             </span>
           </div>

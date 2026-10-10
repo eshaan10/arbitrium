@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { kickoff, kickoffFixed } from "./format";
+import { fairValueCents, kickoff, kickoffFixed, timeToKickoffLong } from "./format";
 
 /**
  * A falsifiable monitor for the kickoff hydration bug.
@@ -68,5 +68,38 @@ describe("kickoffFixed", () => {
   it("returns a dash for a missing or unparseable timestamp", () => {
     expect(kickoffFixed(null)).toBe("—");
     expect(kickoffFixed("not a date")).toBe("—");
+  });
+});
+
+describe("the card's date line", () => {
+  it("joins date and time with a comma when asked", () => {
+    expect(kickoffFixed(KICKOFF, ", ")).toBe("Sep 13, 8:25 PM EDT");
+  });
+
+  it.each([
+    [4 * 86_400_000 + 3_600_000, "in 4 days"],
+    [86_400_000, "in 24 hours"],
+    [3_600_000, "in 1 hour"],
+    [5 * 3_600_000, "in 5 hours"],
+    [12 * 60_000, "in 12 minutes"],
+    [20_000, "in 1 minute"],
+    [0, "started"],
+    [-60_000, "started"],
+  ])("spells %ims to kickoff as %j", (ahead, text) => {
+    const now = new Date(KICKOFF).getTime() - ahead;
+    expect(timeToKickoffLong(KICKOFF, now)).toBe(text);
+  });
+});
+
+describe("fair value beside a price", () => {
+  it("shows whole cents when the two differ by a cent or more", () => {
+    expect(fairValueCents(0.4, 0.39)).toBe("40¢");
+  });
+  it("shows one decimal when they would round to the same cent", () => {
+    expect(fairValueCents(0.2141, 0.21)).toBe("21.4¢");
+    expect(fairValueCents(0.21, 0.21)).toBe("21.0¢");
+  });
+  it("is a dash when missing", () => {
+    expect(fairValueCents(null, 0.21)).toBe("—");
   });
 });

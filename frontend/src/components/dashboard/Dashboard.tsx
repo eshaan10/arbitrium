@@ -230,7 +230,7 @@ export function Dashboard({
                 const [shown, folded] = splitFoldable(group.events, foldUnscoreable);
                 return (
                 <section key={group.key}>
-                  <h2 className="rule-label mb-3 flex items-center gap-3 label text-meta font-semibold text-dim">
+                  <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
                     {group.label}
                     {/* The count stays the GROUP total even when some are
                         folded away. The fold states its own number; a header
@@ -239,7 +239,11 @@ export function Dashboard({
                       {group.events.length}
                     </span>
                   </h2>
-                  <div className="grid gap-3 lg:grid-cols-2">
+                  {/* Same container and gutter as the three "Interesting right now"
+                      tiles, so on desktop each card is exactly a tile's width.
+                      `items-start`: a quiet card is as tall as its content, not
+                      stretched to match a recommendation card beside it. */}
+                  <div className="grid items-start gap-3 min-[720px]:grid-cols-2 lg:grid-cols-3">
                     {shown.map((d) => (
                       <EventCard
                         key={d.event_id}

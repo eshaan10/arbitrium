@@ -70,18 +70,96 @@ function Side({
   );
 }
 
+/**
+ * The header for a recommendation card: a 30px logo circle whose 2px ring
+ * carries the team accent, and the name at 16px.
+ *
+ * The accent collision fallback is the same `matchupVisuals` call as the small
+ * form, so a Cowboys–Seahawks card still draws two different rings. Logos come
+ * from `logoPath`, which knows where each league's marks are vendored; nothing
+ * here assumes a sport.
+ */
+function SideLarge({
+  name,
+  visual,
+  accent,
+  strong,
+  isFollowed,
+  onToggleFollow,
+}: {
+  name: string | null;
+  visual: TeamVisual | null;
+  accent: string;
+  strong: boolean;
+  isFollowed: (team: string | null | undefined) => boolean;
+  onToggleFollow: (team: string) => void;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        aria-hidden
+        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-raised"
+        style={{ boxShadow: `inset 0 0 0 2px ${accent}` }}
+      >
+        {visual ? (
+          <Image src={logoPath(visual)} alt="" width={20} height={20} />
+        ) : null}
+      </span>
+      <span
+        className={`min-w-0 truncate text-[16px] leading-tight ${
+          strong ? "font-medium text-text" : "font-normal text-dim"
+        }`}
+      >
+        {visual?.short ?? name}
+      </span>
+      {name ? (
+        <FollowButton team={name} following={isFollowed(name)} onToggle={onToggleFollow} />
+      ) : null}
+    </span>
+  );
+}
+
 export function Matchup({
   home,
   away,
   isFollowed,
   onToggleFollow,
+  size = "sm",
 }: {
   home: string | null;
   away: string | null;
   isFollowed: (team: string | null | undefined) => boolean;
   onToggleFollow: (team: string) => void;
+  size?: "sm" | "lg";
 }) {
   const { home: hv, away: av, homeAccent, awayAccent } = matchupVisuals(home, away);
+
+  if (size === "lg") {
+    return (
+      <div className="matchup-lg min-w-0">
+        <SideLarge
+          name={away}
+          visual={av}
+          accent={awayAccent}
+          strong={false}
+          isFollowed={isFollowed}
+          onToggleFollow={onToggleFollow}
+        />
+        <span aria-hidden className="shrink-0 text-[13px] text-faint">
+          @
+        </span>
+        <SideLarge
+          name={home}
+          visual={hv}
+          accent={homeAccent}
+          strong
+          isFollowed={isFollowed}
+          onToggleFollow={onToggleFollow}
+        />
+        <span className="sr-only">{home} is the home team</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-w-0 items-center gap-2">

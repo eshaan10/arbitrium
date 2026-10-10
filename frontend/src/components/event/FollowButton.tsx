@@ -35,12 +35,12 @@ export function FollowButton({
         e.stopPropagation();
         onToggle(team);
       }}
-      className={`tap relative z-20 flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-sm border text-[10px] leading-none transition-colors ${
+      className={`tap relative z-20 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-sm border text-[12px] leading-none transition-colors ${
         following
-          ? // Dark glyph on amber, not white: amber is a LIGHT accent, and white
-            // on it fails contrast outright. The old crimson was dark enough for
-            // white to work, which is exactly the sort of thing a palette swap
-            // breaks silently.
+          ? // Dark glyph on lime, not white: lime is a LIGHT accent, and white
+            // on it fails contrast outright (1.2:1). The old crimson was dark
+            // enough for white to work, which is exactly the sort of thing a
+            // palette swap breaks silently.
             "border-signal bg-signal text-bg"
           : "border-border-lit text-faint hover:border-signal hover:text-signal"
       }`}

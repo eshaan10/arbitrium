@@ -51,7 +51,7 @@ export const REFERENCE_LOCALE = "en-US";
  */
 export function kickoff(
   iso: string | null | undefined,
-  opts?: { locale: string; timeZone: string },
+  opts?: { locale?: string; timeZone?: string; separator?: string },
 ): string {
   if (!iso) return DASH;
   const dt = new Date(iso);
@@ -64,7 +64,7 @@ export function kickoff(
       day: "numeric",
       timeZone,
     }) +
-    " · " +
+    (opts?.separator ?? " · ") +
     dt.toLocaleTimeString(locale, {
       hour: "numeric",
       minute: "2-digit",
@@ -75,11 +75,26 @@ export function kickoff(
 }
 
 /** The fixed-zone form. Safe to render on the server; never depends on a clock. */
-export function kickoffFixed(iso: string | null | undefined): string {
+export function kickoffFixed(iso: string | null | undefined, separator?: string): string {
   return kickoff(iso, {
     locale: REFERENCE_LOCALE,
     timeZone: REFERENCE_TIME_ZONE,
+    separator,
   });
+}
+
+/** "in 4 days" / "in 5 hours" / "in 12 minutes" / "started" — the spelled-out form. */
+export function timeToKickoffLong(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - now;
+  if (Number.isNaN(ms)) return "";
+  if (ms <= 0) return "started";
+  const unit = (n: number, word: string) => `in ${n} ${word}${n === 1 ? "" : "s"}`;
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return unit(minutes, "minute");
+  const hours = Math.round(ms / 3_600_000);
+  if (hours < 48) return unit(hours, "hour");
+  return unit(Math.round(hours / 24), "day");
 }
 
 /** "in 3 days" / "in 2h" / "started" — relative to now, coarse on purpose. */
@@ -101,4 +116,19 @@ export function plural(n: number | null | undefined, one: string, many: string):
 export function titleCase(s: string | null | undefined): string {
   if (!s) return "";
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * The sportsbooks' fair value, in cents, beside a Kalshi price.
+ *
+ * Whole cents normally. When the two would round to the SAME cent, one decimal
+ * is shown instead: "Buy Yes · 21¢ — sportsbooks say 21¢" reads as no edge at
+ * all, when the real figures are 21¢ against 21.4¢.
+ */
+export function fairValueCents(fair: number | null | undefined, price: number | null | undefined): string {
+  if (fair == null || Number.isNaN(fair)) return DASH;
+  if (price != null && Math.round(fair * 100) === Math.round(price * 100)) {
+    return `${(fair * 100).toFixed(1)}¢`;
+  }
+  return cents(fair);
 }

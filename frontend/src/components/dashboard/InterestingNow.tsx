@@ -40,18 +40,20 @@ function Slot({
   const body = (
     <>
       <div className="flex items-center gap-1.5">
-        <span className="label text-micro text-faint">{label}</span>
+        <span className="text-[13px] text-muted">{label}</span>
         {info}
       </div>
       {headline ? (
         <>
+          {/* Unbounded, like the card headlines below — truncated rather than
+              wrapped when a long matchup will not fit the tile. */}
           <div
-            className="mt-2 truncate text-headline font-semibold"
+            className="display mt-2 truncate text-[16px]"
             style={{ color: accent ?? "var(--text)" }}
           >
             {headline}
           </div>
-          <div className="mt-1 truncate text-meta text-muted">{detail}</div>
+          <div className="mt-1 truncate text-[13px] text-muted">{detail}</div>
         </>
       ) : (
         <div className="prose mt-2 text-meta leading-relaxed text-faint">{empty}</div>
@@ -64,7 +66,7 @@ function Slot({
   // otherwise widened the whole page and made it scroll sideways on a phone.
   return (
     <div
-      className={`relative min-w-0 rounded-md border border-border bg-surface p-3.5 transition-colors sm:p-4 ${
+      className={`card relative min-w-0 transition-colors ${
         href ? "hover:border-border-lit" : ""
       }`}
     >
@@ -78,7 +80,7 @@ function Slot({
         <Link
           href={href}
           aria-label={headline ? `${label}: ${headline}` : label}
-          className="absolute inset-0 z-10 rounded-md"
+          className="absolute inset-0 z-10 rounded-[var(--r-card)]"
         />
       ) : null}
       {body}
@@ -108,7 +110,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
 
   return (
     <section>
-      <h2 className="mb-3 flex items-center gap-3 label text-meta font-semibold text-dim rule-label">
+      <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
         Interesting right now
       </h2>
       <div className="grid gap-3 sm:grid-cols-3">
@@ -119,7 +121,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
           accent="var(--signal-500)"
           headline={
             bestEdge?.recommendation
-              ? `Buy ${bestEdge.recommendation.side} ${
+              ? `Buy ${bestEdge.recommendation.side === "yes" ? "Yes" : "No"} ${
                   teamVisual(bestEdge.recommendation.team)?.short ?? bestEdge.recommendation.team
                 } at ${cents(bestEdge.recommendation.price)}`
               : undefined
@@ -137,7 +139,15 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
           info={<InfoPopover term="arbitrage" />}
           href={arb ? `/events/${arb.event_id}` : undefined}
           accent="var(--arb)"
-          headline={arb ? `${arb.away_team} @ ${arb.home_team}` : undefined}
+          // Short names: the full matchup does not fit a tile in the display
+          // face, and a truncated headline is worse than a shorter one.
+          headline={
+            arb
+              ? `${teamVisual(arb.away_team)?.short ?? arb.away_team} @ ${
+                  teamVisual(arb.home_team)?.short ?? arb.home_team
+                }`
+              : undefined
+          }
           detail={
             arb?.arbitrage
               ? `${(arb.arbitrage.total_cost * 100).toFixed(1)}¢ for $1 · ${

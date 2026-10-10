@@ -22,10 +22,17 @@ import { useIsClient } from "@/lib/useIsClient";
 export function KickoffTime({
   iso,
   className,
+  separator,
 }: {
   iso: string | null | undefined;
   className?: string;
+  /** Between date and time; " · " by default, ", " on the card's date line. */
+  separator?: string;
 }) {
   const isClient = useIsClient();
-  return <span className={className}>{isClient ? kickoff(iso) : kickoffFixed(iso)}</span>;
+  return (
+    <span className={className}>
+      {isClient ? kickoff(iso, { separator }) : kickoffFixed(iso, separator)}
+    </span>
+  );
 }

@@ -48,7 +48,7 @@ export function RecentlyViewed() {
                     {away?.short ?? e.away} <span className="text-muted">@</span>{" "}
                     {home?.short ?? e.home}
                   </div>
-                  <div className="label text-micro text-faint">
+                  <div className="text-micro text-faint">
                     {e.sport ?? ""}
                   </div>
                 </Link>

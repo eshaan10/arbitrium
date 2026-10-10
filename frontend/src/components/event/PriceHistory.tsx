@@ -159,13 +159,13 @@ export function PriceHistory({
               tickFormatter={(t) =>
                 new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
               }
-              tick={{ fill: "var(--muted)", fontSize: 10 }}
+              tick={{ fill: "var(--muted)", fontSize: 12 }}
               stroke="var(--border)"
               tickLine={false}
             />
             <YAxis
               tickFormatter={(v) => `${Math.round(v * 100)}%`}
-              tick={{ fill: "var(--muted)", fontSize: 10 }}
+              tick={{ fill: "var(--muted)", fontSize: 12 }}
               stroke="var(--border)"
               tickLine={false}
               width={44}

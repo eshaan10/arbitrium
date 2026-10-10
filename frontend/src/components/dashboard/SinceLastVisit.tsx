@@ -25,7 +25,7 @@ export function SinceLastVisit({ events }: { events: Divergence[] }) {
       aria-label="Changes since your last visit"
       className="rounded-md border border-signal-800 bg-[var(--signal-950)] p-3.5"
     >
-      <h2 className="label text-micro font-semibold text-signal-600">
+      <h2 className="text-micro font-semibold text-signal-600">
         Since you last looked
       </h2>
       <ul className="mt-2 space-y-1.5">

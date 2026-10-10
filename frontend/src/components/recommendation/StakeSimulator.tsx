@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { money, num } from "@/lib/format";
+import { availableContracts, maxFillCents, priceToCents, quoteStake } from "@/lib/stake";
 import { AnimatedNumber } from "@/components/primitives/AnimatedNumber";
 import type { Recommendation } from "@/lib/types";
 
@@ -22,14 +23,14 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
   const [stake, setStake] = useState(100);
   const [open, setOpen] = useState(false);
 
-  // Contracts are whole things — you cannot buy 572.76 of them — so the
-  // simulator quotes what would actually fill, not a fractional ideal.
-  const wanted = stake > 0 && rec.price > 0 ? Math.floor(stake / rec.price) : 0;
-  const cap = rec.max_contracts == null ? null : Math.floor(rec.max_contracts);
-  const capped = cap != null && wanted > cap;
-  const usable = capped ? cap! : wanted;
-  const spend = usable * rec.price;
-  const ifWin = usable - spend;
+  // The same integer-cent maths as the card's bet input (lib/stake.ts), so the
+  // two can never quote different numbers for one bet.
+  const cap = availableContracts(rec.max_contracts);
+  const priceCents = priceToCents(rec.price);
+  const q = quoteStake(Math.round(stake * 100), priceCents, cap);
+  const capped = q.capped;
+  const spend = q.costCents / 100;
+  const ifWin = q.winCents / 100;
 
   return (
     <div className="relative z-20">
@@ -104,8 +105,9 @@ export function StakeSimulator({ rec }: { rec: Recommendation }) {
 
       {capped ? (
         <p className="mt-1 text-micro text-warn">
-          Only {num(cap)} contracts resting at this price ({money(rec.max_stake)} max) — more would
-          move the market against you.
+          Only {num(cap)} contracts resting at this price (
+          {money((maxFillCents(priceCents, cap) ?? 0) / 100)} max) — more would move the market
+          against you.
         </p>
       ) : null}
     </div>

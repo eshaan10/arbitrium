@@ -94,7 +94,7 @@ function grade(event: EventRecord, pin: PinnedGame): Graded {
     event,
     pin,
     verdict: correct ? "right" : "wrong",
-    detail: `You pinned "Buy ${call.side} ${short}". ${
+    detail: `You pinned "Buy ${call.side === "yes" ? "Yes" : "No"} ${short}". ${
       teamVisual(event.winner_team)?.short ?? event.winner_team
     } won.`,
   };
@@ -128,7 +128,7 @@ function PastRow({ g }: { g: Graded }) {
         <span className="flex items-center gap-2">
           {score ? <span className="tabular text-meta text-dim">{score}</span> : null}
           <span
-            className="label rounded-sm border px-1.5 py-[2px] text-micro"
+            className="rounded-sm border px-1.5 py-[2px] text-micro"
             style={{ color: style.color, borderColor: style.color }}
           >
             {style.label}
@@ -175,7 +175,7 @@ export function PastGames({ pins }: { pins: PinnedGame[] }) {
 
   return (
     <section>
-      <h2 className="rule-label mb-3 flex items-center gap-3 label text-meta font-semibold text-dim">
+      <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
         Finished
         <span className="tabular text-micro font-normal text-faint">{graded.length}</span>
       </h2>

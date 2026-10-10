@@ -76,7 +76,7 @@ export function SportTabs({
             onClick={() => setParam({ sport: t.key })}
             className={`tap shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-body transition-colors sm:px-3 ${
               isActive
-                ? // Dark on amber. White on this accent fails contrast.
+                ? // Dark on lime. White on this accent fails contrast.
                   "bg-signal font-medium text-bg"
                 : t.enabled
                   ? "text-dim hover:bg-raised hover:text-text"
