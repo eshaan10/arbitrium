@@ -77,7 +77,7 @@ export function ActivityTicker() {
   return (
     <div className="border-t border-border bg-[var(--surface-sunken)]">
       <div className="mx-auto flex max-w-[1160px] items-center gap-3 px-6 py-2.5">
-        <span className="shrink-0 label text-micro text-faint">
+        <span className="shrink-0 text-micro text-faint">
           Live · 24h
         </span>
 

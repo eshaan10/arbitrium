@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { fetchEvent } from "@/lib/api";
 import { teamVisual } from "@/lib/teams";
@@ -27,15 +29,42 @@ export const alt = "Arbitrium event";
  * so the duplication is obvious, and pinned by a test that compares them back
  * against the stylesheet.
  */
+/**
+ * The app's two faces, vendored under src/assets/fonts (OFL, licences beside
+ * them). next/font cannot reach this sandbox, so without these the preview
+ * would fall back to a generic face and the wordmark would not match the
+ * header. WOFF rather than WOFF2: satori does not decode WOFF2.
+ */
+const FONT_DIR = join(process.cwd(), "src/assets/fonts");
+const fonts = Promise.all([
+  readFile(join(FONT_DIR, "Inter-400.woff")),
+  readFile(join(FONT_DIR, "Inter-500.woff")),
+  readFile(join(FONT_DIR, "Unbounded-400.woff")),
+]).then(([inter400, inter500, unbounded]) => [
+  { name: "Inter", data: inter400, weight: 400 as const, style: "normal" as const },
+  { name: "Inter", data: inter500, weight: 500 as const, style: "normal" as const },
+  { name: "Unbounded", data: unbounded, weight: 400 as const, style: "normal" as const },
+]);
+
 export const PALETTE = {
-  bg: "#0b0a09",
-  text: "#f2ede4",
-  dim: "#b3aa9c",
-  muted: "#868075",
-  faint: "#55504a",
-  border: "#2a2521",
-  signal: "#f2c14e",
+  bg: "#0a0b0d",
+  text: "#f2f3f0",
+  dim: "#b9bcc4",
+  muted: "#9a9ea6",
+  faint: "#7d818a",
+  border: "#25272b",
+  signal: "#c6f432",
 } as const;
+
+/** The header's wordmark, drawn again: "arbitrium" in Unbounded, then a lime "/". */
+function Wordmark({ size: px }: { size: number }) {
+  return (
+    <div style={{ display: "flex", fontFamily: "Unbounded", fontSize: px, color: PALETTE.text }}>
+      arbitrium
+      <span style={{ color: PALETTE.signal }}>/</span>
+    </div>
+  );
+}
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -56,20 +85,24 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const away = event?.away_team ?? null;
   const home = event?.home_team ?? null;
 
+  const short = rec ? (teamVisual(rec.team)?.short ?? rec.team) : null;
+  const yes = rec?.side === "yes";
+
+  // The card's own words: the pick in plain language, then the exact order.
   const headline = rec
-    ? `Buy ${rec.side.toUpperCase()} ${teamVisual(rec.team)?.short ?? rec.team}`
+    ? `${short} to ${yes ? "win" : "lose"}`
     : !event
-      ? "Arbitrium"
+      ? null
       : d
         ? "No recommendation"
         : "Final";
 
-  const price = rec ? `${Math.round(rec.price * 100)}¢` : null;
+  const order = rec ? `Buy ${yes ? "Yes" : "No"} · ${Math.round(rec.price * 100)}¢` : null;
 
   const sub = rec
-    ? `${d?.n_books ?? 0} sportsbooks price this nearer ${Math.round(
+    ? `Pays $1 if they ${yes ? "win" : "lose"}. ${d?.n_books ?? 0} sportsbooks say ${Math.round(
         rec.fair_value * 100,
-      )}¢ · directional bet, pays $1 or nothing`
+      )}¢. A directional bet: it pays $1 or nothing.`
     : !event
       ? "Kalshi vs sportsbook consensus"
       : d
@@ -89,38 +122,53 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           justifyContent: "space-between",
           background: PALETTE.bg,
           padding: 64,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: "Inter",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", fontSize: 26, color: PALETTE.muted, letterSpacing: 2 }}>
-            {(event?.sport ?? "").toUpperCase() || "ARBITRIUM"}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", fontSize: 26, color: PALETTE.muted }}>
+            {(event?.league ?? event?.sport ?? "").toUpperCase() || "Kalshi vs sportsbooks"}
           </div>
-          <div style={{ display: "flex", fontSize: 46, color: PALETTE.text, fontWeight: 600 }}>
-            {away && home ? `${away} @ ${home}` : "Arbitrium"}
+          <div style={{ display: "flex", fontSize: 44, fontWeight: 500, color: PALETTE.text }}>
+            {away && home ? `${away} @ ${home}` : "Two places price the same games."}
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {headline ? (
             <div
               style={{
                 display: "flex",
-                fontSize: 62,
-                fontWeight: 700,
-                color: rec ? PALETTE.signal : PALETTE.dim,
+                fontFamily: "Unbounded",
+                fontSize: 76,
+                letterSpacing: -1,
+                color: rec ? PALETTE.text : PALETTE.dim,
               }}
             >
               {headline}
             </div>
-            {price ? (
-              <div style={{ display: "flex", fontSize: 62, fontWeight: 700, color: PALETTE.text }}>
-                {price}
+          ) : (
+            <Wordmark size={96} />
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            {order ? (
+              <div
+                style={{
+                  display: "flex",
+                  fontSize: 30,
+                  fontWeight: 500,
+                  color: PALETTE.bg,
+                  background: PALETTE.signal,
+                  borderRadius: 10,
+                  padding: "6px 16px",
+                }}
+              >
+                {order}
               </div>
             ) : null}
-          </div>
-          <div style={{ display: "flex", fontSize: 26, color: PALETTE.dim, maxWidth: 1000 }}>
-            {sub}
+            <div style={{ display: "flex", fontSize: 26, color: PALETTE.dim, maxWidth: 820 }}>
+              {sub}
+            </div>
           </div>
         </div>
 
@@ -133,15 +181,13 @@ export default async function Image({ params }: { params: Promise<{ id: string }
             paddingTop: 24,
           }}
         >
-          <div style={{ display: "flex", fontSize: 28, color: PALETTE.signal, fontWeight: 700 }}>
-            ARBITRIUM
-          </div>
+          <Wordmark size={30} />
           <div style={{ display: "flex", fontSize: 22, color: PALETTE.faint }}>
             Kalshi vs sportsbook consensus · gross of fees
           </div>
         </div>
       </div>
     ),
-    size,
+    { ...size, fonts: await fonts },
   );
 }

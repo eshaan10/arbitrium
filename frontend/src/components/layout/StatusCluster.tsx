@@ -48,12 +48,12 @@ export function StatusCluster() {
   if (error) {
     return (
       <span
-        className="label flex items-center gap-1.5 text-micro text-warn sm:text-meta"
+        className="flex items-center gap-1.5 text-micro text-warn sm:text-meta"
         title="/health did not respond"
       >
         <span aria-hidden className="h-[6px] w-[6px] rounded-full bg-[var(--warn)]" />
         <span className="hidden sm:inline">API unreachable</span>
-        <span className="sm:hidden">No API</span>
+        <span className="sr-only sm:hidden">API unreachable</span>
       </span>
     );
   }
@@ -79,7 +79,7 @@ export function StatusCluster() {
 
   return (
     <span
-      className="group flex items-center gap-2 rounded-sm border border-border px-2 py-1 sm:px-2.5"
+      className="group flex items-center gap-2 rounded-sm border border-border px-2 py-1.5 sm:px-2.5 sm:py-1"
       title={detail}
     >
       <span className="flex items-center gap-1.5">
@@ -88,8 +88,11 @@ export function StatusCluster() {
           className="h-[6px] w-[6px] rounded-full"
           style={{ background: colour }}
         />
+        {/* Below `sm` the dot alone carries the verdict — four nav tabs and a
+            worded pill do not fit a 375px header. The word stays for screen
+            readers and in the title tooltip. */}
         <span
-          className="label text-micro sm:text-meta"
+          className="sr-only sm:not-sr-only sm:text-meta"
           style={{ color: summary.tone === "warn" ? "var(--warn)" : "var(--text-dim)" }}
         >
           {summary.label}
@@ -99,7 +102,7 @@ export function StatusCluster() {
       {/* Per-source detail stays visible where there is room; the badge above
           carries the verdict everywhere else. */}
       {data ? (
-        <span className="label hidden items-center gap-2 border-l border-border pl-2 text-micro text-faint lg:flex">
+        <span className="hidden items-center gap-2 border-l border-border pl-2 text-micro text-faint lg:flex">
           {Object.entries(data.ingestion).map(([key, f]) => (
             <span key={key}>
               {LABELS[key] ?? key}{" "}

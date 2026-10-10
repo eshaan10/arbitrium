@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { StatusCluster } from "./StatusCluster";
 import { ActivityTicker } from "./ActivityTicker";
+import { WordmarkLink } from "@/components/brand/Wordmark";
 
 const NAV = [
   { href: "/", label: "Dashboard", short: "Board" },
   { href: "/combos", label: "Combos", short: "Combos" },
   { href: "/performance", label: "Performance", short: "Perf" },
+  { href: "/how-it-works", label: "How it works", short: "Guide" },
 ];
 
 /**
@@ -22,10 +24,12 @@ const NAV = [
  *   the TOOLBAR answers "what am I looking at?"     — sport, search, filters,
  *   detail level. Those live with the list they control, not up here.
  *
- * Docs links sit in the footer rather than the header: they are for a first
- * visit, and they were competing with navigation on every subsequent one.
+ * "How it works" is a top-level destination: the explainer is how a first-time
+ * reader learns what a recommendation, a confidence level or an arbitrage
+ * actually means, so it sits beside the pages that use those terms. About
+ * stays in the footer.
  *
- * MOBILE: no hamburger. Three destinations fit on a phone if the labels
+ * MOBILE: no hamburger. Four destinations fit on a phone if the labels
  * shorten, and a menu that hides three links behind a tap costs more than it
  * saves — a hamburger is for when nav does not fit, not for when it looks
  * busy. The status cluster keeps its verdict and drops its per-source detail,
@@ -39,14 +43,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* z-40 — above the toolbar's z-30, which is itself above the z-20 band
           card controls occupy. See Toolbar for why that band matters. */}
       <header className="sticky top-0 z-40 border-b border-border bg-[color-mix(in_srgb,var(--bg)_96%,transparent)] backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-[1160px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
-          <Link
-            href="/"
-            className="tap label shrink-0 text-title font-bold text-signal"
-            aria-label="Arbitrium — dashboard"
-          >
-            Arbitrium
-          </Link>
+        <div className="mx-auto flex h-14 max-w-[1160px] items-center gap-2 px-4 sm:gap-6 sm:px-6">
+          <WordmarkLink />
 
           {/* No overflow property here, deliberately.
               `overflow-x: auto` forces `overflow-y` to compute to `auto` as
@@ -55,7 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               box. So the nav gained 13px of vertical overflow it could never
               scroll, rendered a stray scrollbar inside a 33px-tall bar, and
               clipped the underline it was supposed to be showing. The nav does
-              not need to scroll: the labels shorten below `sm` and the three
+              not need to scroll: the labels shorten below `sm` and the four
               destinations fit. */}
           <nav className="-mx-1 flex min-w-0 items-center gap-0.5" aria-label="Main">
             {NAV.map((item) => {
@@ -66,7 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`tap relative shrink-0 rounded-sm px-2 py-1.5 text-body transition-colors sm:px-2.5 ${
+                  className={`tap relative shrink-0 rounded-sm px-1.5 py-1.5 text-body transition-colors sm:px-2.5 ${
                     active ? "text-text" : "text-muted hover:text-dim"
                   }`}
                 >
@@ -77,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {active ? (
                     <span
                       aria-hidden
-                      className="absolute inset-x-2 -bottom-[13px] h-[2px] bg-signal sm:inset-x-2.5"
+                      className="absolute inset-x-1.5 -bottom-[13px] h-[2px] bg-signal sm:inset-x-2.5"
                     />
                   ) : null}
                 </Link>
@@ -105,9 +103,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             shown with the reason rather than hidden.
           </p>
           <nav aria-label="Secondary" className="flex items-center gap-4 text-meta">
-            <Link href="/how-it-works" className="tap text-muted hover:text-dim">
-              How it works
-            </Link>
             <Link href="/about" className="tap text-muted hover:text-dim">
               About
             </Link>

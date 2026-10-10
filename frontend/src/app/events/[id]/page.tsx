@@ -57,7 +57,7 @@ export async function generateMetadata({
       ? `Final: ${event.winner_team} won. The closing price from each source is recorded here.`
       : `This game has finished. The closing price from each source is recorded here.`
     : rec
-      ? `Buy ${rec.side} ${rec.team} at ${Math.round(rec.price * 100)}\u00A2 — ` +
+      ? `Buy ${rec.side === "yes" ? "Yes" : "No"} ${rec.team} at ${Math.round(rec.price * 100)}\u00A2 — ` +
         `${d.n_books ?? 0} sportsbooks price it nearer ${Math.round(rec.fair_value * 100)}\u00A2. ` +
         `Directional bet: pays $1 if it happens, nothing if it does not.`
       : `Kalshi and the sportsbook consensus do not currently disagree enough to act on.`;
@@ -132,7 +132,7 @@ export default async function EventPage({
     history = null;
   }
 
-  const kalshi = d ? kalshiUrl(d.kalshi_series) : null;
+  const kalshi = d ? kalshiUrl(d.kalshi_series, d.kalshi_event_ticker) : null;
   const ctx = d ? contextLine(d) : null;
 
   return (
@@ -151,7 +151,7 @@ export default async function EventPage({
       </Link>
 
       <div>
-        <div className="flex flex-wrap items-center gap-x-2 label text-micro text-muted">
+        <div className="flex flex-wrap items-center gap-x-2 text-micro text-muted">
           <span>
             {[ev.sport, ev.league]
               .filter(Boolean)
@@ -164,9 +164,8 @@ export default async function EventPage({
         </div>
         <div className="mt-1 flex items-start gap-3">
           {/* `min-w-0` so the flex row can shrink, and wrapping rather than
-              truncation because a page title must stay readable in full. The
-              matchup is set in mono, which is wider than the sans it replaced,
-              and without this a long pairing pushed the page 2px sideways on a
+              truncation because a page title must stay readable in full.
+              Without this a long pairing pushed the page 2px sideways on a
               375px screen. */}
           <h1 className="min-w-0 break-words text-lede font-semibold">
             {ev.away_team} <span className="font-normal text-muted">@</span> {ev.home_team}
