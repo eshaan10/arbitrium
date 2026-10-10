@@ -13,7 +13,7 @@ export interface GlossaryEntry {
 
 export const GLOSSARY = {
   confidence: {
-    term: "Confidence",
+    term: "Strength (confidence)",
     short:
       "How much to trust this signal, from two things: how many sportsbooks agree, and how many contracts are actually resting at the price. It deliberately ignores the size of the edge — a big edge quoted by one book is not strong evidence.",
     anchor: "confidence",

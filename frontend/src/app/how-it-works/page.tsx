@@ -86,9 +86,10 @@ export default function HowItWorksPage() {
         </p>
       </Section>
 
-      <Section id="confidence" title="Confidence">
+      <Section id="confidence" title="Recommendation strength">
         <p>
-          Confidence is built from two independent things: how many sportsbooks agree, and how many
+          Every recommendation card shows its strength — Weak, Moderate, Good or Strong — and the
+          detail pages call the same rating confidence. It is built from two independent things: how many sportsbooks agree, and how many
           contracts are actually resting at the price. Either can sink a signal on its own — a
           consensus over three books is thin, and an edge you can only take $5 of is not an
           opportunity.

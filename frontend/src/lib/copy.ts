@@ -145,10 +145,23 @@ export const STATUS_LABEL: Record<Divergence["status"], string> = {
 };
 
 /**
- * Series page, not a per-event deep link: the per-event URL format could not be
- * verified against Kalshi, and a dead link on the one button meant to drive
- * action is worse than one extra click.
+ * The Kalshi page for THIS game.
+ *
+ * `kalshi.com/markets/<series>/<event-ticker>` redirects to the game's
+ * canonical page (`/markets/kxnflgame/nfl-game/kxnflgame-26oct18lackc`) —
+ * verified in a browser on 2026-10-09 with three URL shapes. Kalshi fills in
+ * the middle slug itself, so no per-league slug ("nfl-game") is hardcoded.
+ *
+ * The bare series page, which this used to return for every game, redirects
+ * to whichever game Kalshi happens to feature — so every card's link opened
+ * the same unrelated matchup. It is now only the fallback when there is no
+ * event ticker, or one that does not belong to the series.
  */
-export function kalshiUrl(series: string | null): string | null {
-  return series ? `https://kalshi.com/markets/${series.toLowerCase()}` : null;
+export function kalshiUrl(series: string | null, eventTicker?: string | null): string | null {
+  if (!series) return null;
+  const s = series.toLowerCase();
+  const e = eventTicker?.toLowerCase();
+  return e && e.startsWith(`${s}-`)
+    ? `https://kalshi.com/markets/${s}/${e}`
+    : `https://kalshi.com/markets/${s}`;
 }

@@ -63,7 +63,7 @@ export default async function CombosPage({
       </div>
 
       <Card className="p-4">
-        <h3 className="label text-meta font-semibold text-dim">
+        <h3 className="text-meta font-semibold text-dim">
           What every combo will have to state
         </h3>
         <ul className="prose mt-2.5 space-y-2 text-meta leading-relaxed text-muted">

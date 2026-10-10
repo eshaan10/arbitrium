@@ -73,7 +73,7 @@ export function BooksTable({ outcomes }: { outcomes: Outcome[] }) {
         <table className="w-full min-w-[420px] border-collapse text-meta">
           <thead>
             <tr className="border-b border-border text-left">
-              <th className="label py-2 pr-3 text-micro font-medium text-muted">Book</th>
+              <th className="py-2 pr-3 text-micro font-medium text-muted">Book</th>
               {rows.map((o) => (
                 <th key={o.team} className="py-2 pr-3 font-medium text-dim">
                   {o.team}

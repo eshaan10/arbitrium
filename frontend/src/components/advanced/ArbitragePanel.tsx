@@ -21,7 +21,7 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
 
   return (
     <section className="rounded-md border border-arb bg-[var(--arb-glow)] p-3.5 sm:p-4">
-      <h3 className="label text-meta font-semibold text-arb">
+      <h3 className="text-meta font-semibold text-arb">
         Cross-platform opportunity — a separate product
       </h3>
 
@@ -53,9 +53,9 @@ export function ArbitragePanel({ d }: { d: Divergence }) {
         <table className="w-full border-collapse text-meta">
           <thead>
             <tr className="border-b border-[color-mix(in_srgb,var(--arb)_30%,transparent)] text-left">
-              <th className="label py-2 pr-3 text-micro font-medium text-muted">Outcome</th>
-              <th className="label py-2 pr-3 text-micro font-medium text-muted">Venue</th>
-              <th className="label py-2 text-micro font-medium text-muted">Cost</th>
+              <th className="py-2 pr-3 text-micro font-medium text-muted">Outcome</th>
+              <th className="py-2 pr-3 text-micro font-medium text-muted">Venue</th>
+              <th className="py-2 text-micro font-medium text-muted">Cost</th>
             </tr>
           </thead>
           <tbody>

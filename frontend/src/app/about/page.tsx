@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Wordmark } from "@/components/brand/Wordmark";
 
 export const metadata: Metadata = {
   title: "About — Arbitrium",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 const REPO = "https://github.com/eshaan10/Arbitrium";
 
 const STACK = [
-  ["Ingestion", "Python, httpx, Prefect — Kalshi and The Odds API on independent schedules"],
+  ["Ingestion", "Python, httpx, a plain polling loop — Kalshi and The Odds API on independent schedules"],
   ["Storage", "PostgreSQL, append-only snapshots with a dedup trigger"],
   ["API", "FastAPI"],
   ["Frontend", "Next.js App Router, TypeScript, Tailwind, TanStack Query, Recharts"],
@@ -19,7 +20,8 @@ export default function AboutPage() {
   return (
     <div className="max-w-[68ch] space-y-8">
       <div>
-        <h1 className="text-lede font-semibold">About</h1>
+        <Wordmark className="text-[26px]" />
+        <h1 className="mt-4 text-lede font-semibold">About</h1>
         <p className="prose mt-2 text-body text-dim">
           Arbitrium is an independent auditor for two sports-pricing systems that never check each
           other&apos;s work.
@@ -50,7 +52,7 @@ export default function AboutPage() {
         <dl className="mt-2 space-y-2">
           {STACK.map(([label, detail]) => (
             <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
-              <dt className="w-[92px] shrink-0 label text-micro text-muted">
+              <dt className="w-[92px] shrink-0 text-micro text-muted">
                 {label}
               </dt>
               <dd className="prose text-body text-dim">{detail}</dd>

@@ -49,7 +49,7 @@ export function ReliabilityPlot({ bins }: { bins: ReliabilityBin[] }) {
             domain={[0, 1]}
             ticks={[0, 0.25, 0.5, 0.75, 1]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
-            tick={{ fill: "var(--muted)", fontSize: 10 }}
+            tick={{ fill: "var(--muted)", fontSize: 12 }}
             stroke="var(--border)"
             tickLine={false}
             name="Predicted"
@@ -60,7 +60,7 @@ export function ReliabilityPlot({ bins }: { bins: ReliabilityBin[] }) {
             domain={[0, 1]}
             ticks={[0, 0.25, 0.5, 0.75, 1]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
-            tick={{ fill: "var(--muted)", fontSize: 10 }}
+            tick={{ fill: "var(--muted)", fontSize: 12 }}
             stroke="var(--border)"
             tickLine={false}
             width={44}
@@ -117,14 +117,14 @@ export function CalibrationCurve({ points }: { points: CalibrationPoint[] }) {
             type="number"
             domain={[0, 1]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
-            tick={{ fill: "var(--muted)", fontSize: 10 }}
+            tick={{ fill: "var(--muted)", fontSize: 12 }}
             stroke="var(--border)"
             tickLine={false}
           />
           <YAxis
             domain={[0, 1]}
             tickFormatter={(v) => `${Math.round(v * 100)}%`}
-            tick={{ fill: "var(--muted)", fontSize: 10 }}
+            tick={{ fill: "var(--muted)", fontSize: 12 }}
             stroke="var(--border)"
             tickLine={false}
             width={44}

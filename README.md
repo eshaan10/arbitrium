@@ -1,4 +1,4 @@
-# Arbitrium
+# arbitrium/
 
 Two systems price the same sports events and never check each other's work:
 **Kalshi**, a CFTC-regulated prediction market where the price is what traders
