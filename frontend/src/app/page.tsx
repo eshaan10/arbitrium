@@ -41,16 +41,20 @@ export default async function Page({
   // takes over polling from there. A backend that is down is an expected state
   // during Phase 3 work, so it degrades to the client's error path rather than
   // failing the render.
-  let initialData: DivergencesResponse | null = null;
-  try {
-    initialData = await fetchDivergences({ sport: sport ?? undefined, limit: LIST_LIMIT });
-  } catch {
-    initialData = null;
-  }
+  //
+  // On a sport tab the unfiltered feed is fetched too, in parallel: the sport
+  // tabs' availability comes from it, and without it the first paint would
+  // have no way to know the other sports have games.
+  const settle = (p: Promise<DivergencesResponse>) => p.catch(() => null);
+  const [initialData, initialAllData] = await Promise.all([
+    settle(fetchDivergences({ sport: sport ?? undefined, limit: LIST_LIMIT })),
+    sport ? settle(fetchDivergences({ limit: LIST_LIMIT })) : Promise.resolve(null),
+  ]);
 
   return (
     <Dashboard
       initialData={initialData}
+      initialAllData={initialAllData}
       sport={sport}
       mode={parseMode(sp.mode)}
       view={parseView(sp.view)}

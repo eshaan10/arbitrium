@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { sortForDisplay } from "@/lib/confidence";
 import { groupEvents } from "@/lib/grouping";
+import { sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
 import { netMovesByEvent } from "@/lib/moves";
 import {
@@ -50,12 +51,15 @@ import type { Divergence, DivergencesResponse } from "@/lib/types";
  */
 export function Dashboard({
   initialData,
+  initialAllData,
   sport,
   mode,
   view,
   serverNow,
 }: {
   initialData: DivergencesResponse | null;
+  /** The unfiltered feed, for sport-tab availability; null on the All tab. */
+  initialAllData: DivergencesResponse | null;
   sport: string | null;
   mode: Mode;
   view: View;
@@ -88,6 +92,17 @@ export function Dashboard({
     queryKey: queryKeys.divergences(query),
     queryFn: () => fetchDivergences(query),
     initialData: initialData ?? undefined,
+  });
+
+  // The UNFILTERED feed, for the sport tabs' availability and counts. On the
+  // All tab this is the same key as the query above, so React Query serves both
+  // from one request; on a sport tab it is the one extra request that keeps the
+  // other sports from reading "not ingested".
+  const allQuery = { limit: LIST_LIMIT };
+  const { data: allData } = useQuery({
+    queryKey: queryKeys.divergences(allQuery),
+    queryFn: () => fetchDivergences(allQuery),
+    initialData: (sport == null ? initialData : initialAllData) ?? undefined,
   });
 
   // Shared with the ticker and the rail — one request serves all three, so the
@@ -140,9 +155,11 @@ export function Dashboard({
     "my-games": all.filter(isPinnedGame).length,
   };
 
-  const sports = [
-    ...new Set(all.map((d) => d.sport).filter((s): s is string => !!s)),
-  ];
+  const tabs = sportTabs({
+    activeSport: sport,
+    filtered: data?.divergences,
+    unfiltered: allData?.divergences,
+  });
 
   const matchesView = (d: Divergence) => {
     if (view === "recommended") return d.recommendation != null;
@@ -191,7 +208,7 @@ export function Dashboard({
       <div>
         <Toolbar
           sport={sport}
-          sports={sports}
+          sportTabs={tabs}
           view={view}
           counts={counts}
           personalReady={followReady && gamesReady}
