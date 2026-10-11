@@ -6,6 +6,7 @@ import { fetchActivity, queryKeys } from "@/lib/api";
 import { reachableValue } from "@/lib/confidence";
 import { teamVisual } from "@/lib/teams";
 import { cents, pct } from "@/lib/format";
+import type { NoEdgeCopy } from "@/lib/copy";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import type { Divergence } from "@/lib/types";
 
@@ -88,7 +89,7 @@ function Slot({
   );
 }
 
-export function InterestingNow({ events }: { events: Divergence[] }) {
+export function InterestingNow({ events, noEdge }: { events: Divergence[]; noEdge: NoEdgeCopy }) {
   const { data: activity } = useQuery({
     queryKey: queryKeys.activity(24),
     queryFn: () => fetchActivity(24, 200),
@@ -131,7 +132,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
               ? `${pct(bestEdge.recommendation.edge, 1)} edge · ${bestEdge.n_books ?? 0} books`
               : undefined
           }
-          empty="No edge survives the spread right now. That is a real answer, not a gap in the data."
+          empty={noEdge.edgeSlot}
         />
 
         <Slot
@@ -155,7 +156,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
                 }`
               : undefined
           }
-          empty="No arbitrage open. These are rare and usually short-lived."
+          empty={noEdge.arbSlot}
         />
 
         <Slot

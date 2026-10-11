@@ -1,4 +1,5 @@
 import { cents, plural } from "./format";
+import { KNOWN_SPORTS } from "./sports";
 import type { Divergence } from "./types";
 
 /**
@@ -134,6 +135,96 @@ export function contextLine(d: Divergence): string {
     bits.push(`up to ${Math.floor(max).toLocaleString()} contracts available`);
   }
   return bits.join(" · ");
+}
+
+/**
+ * Why there is no recommendation, said truthfully for the view on screen.
+ *
+ * "No edge survives the spread" is only true when games were actually priced
+ * against each other. A view whose every game is Kalshi-only (a sport with no
+ * sportsbook odds enabled yet) compared nothing, so saying no edge survived
+ * would present a missing input as a market reading.
+ *
+ *   scored      at least one game was compared; none cleared the spread
+ *   kalshi-only every game has a Kalshi price and nothing to compare it with
+ *   unscored    second prices exist, but no game had enough to be scored
+ *   empty       no games in the view at all
+ */
+export type RecommendationContext = "scored" | "kalshi-only" | "unscored" | "empty";
+
+export function recommendationContext(events: Divergence[]): RecommendationContext {
+  if (events.length === 0) return "empty";
+  if (events.some((d) => d.status === "scored")) return "scored";
+  if (events.every((d) => d.status === "single_source_no_divergence")) return "kalshi-only";
+  return "unscored";
+}
+
+/** "NBA" when the view is one sport, null when it mixes sports or has none. */
+function singleSportLabel(events: Divergence[]): string | null {
+  const sports = new Set(events.map((d) => d.sport?.toLowerCase()).filter(Boolean));
+  if (sports.size !== 1) return null;
+  const [key] = sports as Set<string>;
+  return KNOWN_SPORTS.find((s) => s.key === key)?.label ?? key.toUpperCase();
+}
+
+export interface NoEdgeCopy {
+  context: RecommendationContext;
+  /** Title for the Recommended view's empty state. */
+  title: string;
+  /** Body for the Recommended view's empty state; the browse link follows it. */
+  body: string;
+  /** Empty text for the rail's "Biggest edge" card. */
+  edgeSlot: string;
+  /** Empty text for the rail's "Arbitrage" card. */
+  arbSlot: string;
+}
+
+export function noEdgeCopy(events: Divergence[]): NoEdgeCopy {
+  const context = recommendationContext(events);
+  const arbDefault = "No arbitrage open. These are rare and usually short-lived.";
+
+  if (context === "kalshi-only") {
+    const sport = singleSportLabel(events);
+    const games = sport ? `${sport} games` : "these games";
+    const Games = sport ? games : "These games";
+    return {
+      context,
+      title: "Nothing to compare yet",
+      body:
+        `${Games} are tracked from Kalshi only for now. Sportsbook odds aren't enabled for ` +
+        `${sport ?? "them"} yet, so nothing can be compared or recommended.`,
+      edgeSlot: `Nothing to compare: ${games} have Kalshi prices only, no sportsbook odds yet.`,
+      arbSlot: `Arbitrage needs a second venue, and only Kalshi prices ${games} for now.`,
+    };
+  }
+
+  if (context === "unscored") {
+    return {
+      context,
+      title: "Nothing to compare yet",
+      body:
+        "No game in this view has enough sportsbook prices to compare against Kalshi yet, " +
+        "so nothing can be recommended. Far from kickoff, few books post odds.",
+      edgeSlot: "No game has enough sportsbook prices to compare against Kalshi yet.",
+      arbSlot: arbDefault,
+    };
+  }
+
+  return {
+    context,
+    title: "Nothing worth acting on",
+    body:
+      context === "empty"
+        ? "No games are in the feed for this view yet."
+        : "No edge currently survives crossing the Kalshi spread. That is a real answer " +
+          "rather than a gap — roughly half of measured divergences are smaller than the " +
+          "spread needed to capture them.",
+    edgeSlot:
+      context === "empty"
+        ? "No games are in the feed for this view yet."
+        : "No edge survives the spread right now. That is a real answer, not a gap in the data.",
+    arbSlot: arbDefault,
+  };
 }
 
 /** One-line label for a status badge. */

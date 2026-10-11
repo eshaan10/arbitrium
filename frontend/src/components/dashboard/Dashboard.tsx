@@ -24,6 +24,7 @@ import { usePriceFlash } from "@/lib/usePriceDeltas";
 import { useIsClient } from "@/lib/useIsClient";
 import { recSignature } from "@/lib/changes";
 import { shouldFold, splitFoldable } from "@/lib/fold";
+import { noEdgeCopy } from "@/lib/copy";
 import { EventCard } from "@/components/event/EventCard";
 import { EventRow } from "@/components/event/EventRow";
 import { EmptyState } from "@/components/primitives";
@@ -132,6 +133,9 @@ export function Dashboard({
   }
 
   const minBooks = data?.min_consensus_books ?? 3;
+  // Shared by the rail and the Recommended empty state, so both explain an
+  // empty answer the same way for the feed on screen.
+  const noEdge = noEdgeCopy(all);
   const stamp = !isClient
     ? ""
     : isFetching
@@ -224,7 +228,7 @@ export function Dashboard({
 
       <SinceLastVisit events={all} />
 
-      <InterestingNow events={all} />
+      <InterestingNow events={all} noEdge={noEdge} />
 
       <div>
         <Toolbar
@@ -245,21 +249,18 @@ export function Dashboard({
         <div className="pt-6">
           {groups.length === 0 ? (
             <EmptyState
-              title={
-                view === "recommended" && !search ? "Nothing worth acting on" : "Nothing here right now"
-              }
+              title={view === "recommended" && !search ? noEdge.title : "Nothing here right now"}
             >
               {search ? (
                 `No events match "${search}".`
               ) : view === "recommended" ? (
                 <>
                   {/* Recommended is the landing view, so its empty state has to
-                      carry its own weight: this is a genuine reading, not a
-                      failure, and the way out is one click with the number
-                      already on it. */}
-                  No edge currently survives crossing the Kalshi spread. That is a real answer
-                  rather than a gap — roughly half of measured divergences are smaller than the
-                  spread needed to capture them.{" "}
+                      carry its own weight and say WHY it is empty — a spread
+                      nothing cleared, or no second price to compare at all —
+                      and the way out is one click with the number already on
+                      it. */}
+                  {noEdge.body}{" "}
                   <Link
                     href="/?view=all"
                     className="tap text-signal-600 underline-offset-2 hover:underline"
