@@ -1,0 +1,34 @@
+# Build context for backend/Dockerfile (context = repo root, for fly deploy and
+# docker-compose alike). The image needs backend/ (package + pyproject.toml)
+# and db/migrations/ (alembic.ini + versions, for the release command). Nothing
+# below is either of those.
+
+# Secrets. Settings reads ./.env at runtime (env_file=".env", WORKDIR /app), so
+# a baked file fills in any variable Fly does not set, and ships the key in an
+# image layer. Configuration belongs in Fly secrets and fly.toml [env].
+**/.env
+**/.env.*
+!**/.env.example
+
+# VCS, worktrees, local database backups, editor/agent state
+.git
+.worktrees
+backups
+**/.claude
+**/.DS_Store
+
+# Frontend build output and dependencies (deployed separately, on Vercel)
+**/node_modules
+frontend/.next
+
+# Python caches and local virtualenvs
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+
+# Local logs
+**/*.log
+**/logs

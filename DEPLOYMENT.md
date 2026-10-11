@@ -138,12 +138,15 @@ remedy for the wrong problem.
 | Fly | `KALSHI_API_KEY_ID` | secret |
 | Fly | `KALSHI_PRIVATE_KEY` | secret, PEM contents |
 | Fly | `ODDS_API_KEY` | secret |
+| Fly | `KALSHI_SERIES_TICKERS` | `fly.toml` `[env]`, not a secret. Empty means Kalshi ingests nothing |
 | Fly | `ODDS_CREDITS_REMAINING_SEED` | balance to assume while `credit_log` is empty (first deploy); replaced by the first response's header |
 | Fly | `ODDS_SPORTS_ENABLED` | CSV, default `nfl`; add `nba`/`nhl` once their registries land |
 | Vercel | `BACKEND_URL` | `https://arbitrium-api.fly.dev`, server-side only |
 
 Nothing above belongs in git. `.env` is gitignored; `.env.example` carries the
-names and comments only.
+names and comments only. `.env` is also in `.dockerignore`: the settings class
+reads `./.env` at runtime, so a file baked into the image would quietly supply
+any variable Fly does not set. Every production value has to come from Fly.
 
 ---
 

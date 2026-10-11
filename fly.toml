@@ -23,6 +23,13 @@ primary_region = "iad"
 [build]
   dockerfile = "backend/Dockerfile"
 
+# Non-secret configuration. Until .dockerignore existed this value reached
+# production only from a local .env baked into the image; without it the
+# default is an empty list and Kalshi ingests nothing (and the Odds API gate
+# never opens). Secrets stay in `fly secrets`.
+[env]
+  KALSHI_SERIES_TICKERS = "KXNFLGAME,KXNBAGAME"
+
 [deploy]
   # Runs once per deploy, before the new machines take traffic.
   release_command = "alembic -c db/migrations/alembic.ini upgrade head"
