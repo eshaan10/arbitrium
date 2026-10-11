@@ -203,6 +203,41 @@ class CreditLog(Base):
     events_returned: Mapped[int | None] = mapped_column(Integer)
 
 
+class EventLiveState(Base):
+    """Latest live/scoreboard state for one event. Upserted by the ESPN poller.
+
+    One row per event (PK = event_id). ``status`` discriminates: 'scheduled' and
+    'postponed' rows carry metadata (venue, TV, records) but no scores; 'final'
+    rows preserve the last state after the whistle so the UI can show a final
+    scoreboard without a fresh poll.
+    """
+
+    __tablename__ = "event_live_state"
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    period: Mapped[int | None] = mapped_column(Integer)
+    clock: Mapped[str | None] = mapped_column(String)
+    detail: Mapped[str | None] = mapped_column(String)
+    home_score: Mapped[int | None] = mapped_column(Integer)
+    away_score: Mapped[int | None] = mapped_column(Integer)
+    home_record: Mapped[str | None] = mapped_column(String)
+    away_record: Mapped[str | None] = mapped_column(String)
+    venue: Mapped[str | None] = mapped_column(String)
+    broadcast: Mapped[str | None] = mapped_column(String)
+    possession_side: Mapped[str | None] = mapped_column(String)
+    down_distance: Mapped[str | None] = mapped_column(String)
+    last_play: Mapped[str | None] = mapped_column(String)
+    linescore: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+
+
 class OddsCheckpoint(Base):
     """A game-clock checkpoint taken (or deliberately skipped) for one event.
 

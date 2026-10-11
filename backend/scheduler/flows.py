@@ -41,7 +41,8 @@ import httpx
 
 from arbitrium.calibration import grading
 from arbitrium.config import settings
-from arbitrium.ingestion import kalshi, odds_schedule, resolution
+from arbitrium.ingestion import kalshi, live_scores, odds_schedule, resolution
+from arbitrium.ingestion.espn import ESPN_SPORTS
 from arbitrium.ingestion.odds_api import QuotaExhausted
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.ingestion.runs import (
@@ -315,6 +316,24 @@ def run_cycle(sources: list[_Source], now: float) -> None:
             raise SystemExit(1)
 
 
+def _live_scores_sources() -> list[_Source]:
+    """One live-scoreboard source per enabled sport. Free (ESPN), DB-gated.
+
+    Interval is dynamic: 30s when a game is in its live window, 15m while
+    there are scheduled games today, 1h otherwise. The pass_fn re-checks the
+    DB so the "no HTTP call" guarantee survives even if the interval closure
+    is wrong by a tick.
+    """
+    return [
+        _Source(
+            f"live_scores_{sport}",
+            live_scores.pass_fn_for(sport),
+            live_scores.interval_fn_for(sport),
+        )
+        for sport in ESPN_SPORTS
+    ]
+
+
 def build_sources() -> list[_Source]:
     return [
         _Source("kalshi", kalshi_pass, settings.kalshi_poll_interval_seconds),
@@ -362,6 +381,7 @@ def build_sources() -> list[_Source]:
                 zero_write_error_seconds=settings.resolution_zero_write_error_seconds,
             ),
         ),
+        *_live_scores_sources(),
     ]
 
 

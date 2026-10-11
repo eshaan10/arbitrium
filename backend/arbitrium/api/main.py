@@ -23,7 +23,7 @@ from arbitrium.calibration.clv import summarise as summarise_clv
 from arbitrium.calibration.sample import assess, brier_score, wilson_interval
 from arbitrium.config import settings
 from arbitrium.db.engine import SessionLocal, engine
-from arbitrium.db.models import CalibrationHistory, Event, OddsSnapshot
+from arbitrium.db.models import CalibrationHistory, Event, EventLiveState, OddsSnapshot
 from arbitrium.divergence.engine import DivergenceStatus, compute_divergences
 from arbitrium.ingestion.governor import usage_report
 from arbitrium.ingestion.polling import missed_closes
@@ -225,6 +225,77 @@ def health(
     }
 
 
+def _live_payload(state: EventLiveState | None) -> dict | None:
+    """Serialize the latest live-scoreboard state for one event, or None.
+
+    One shape across scheduled / in-progress / final / postponed. The caller
+    tells those apart with ``status``; absent fields are left null rather than
+    omitted so the client type is stable.
+    """
+    if state is None:
+        return None
+    return {
+        "status": state.status,
+        "period": state.period,
+        "clock": state.clock,
+        "detail": state.detail,
+        "home_score": state.home_score,
+        "away_score": state.away_score,
+        "home_record": state.home_record,
+        "away_record": state.away_record,
+        "venue": state.venue,
+        "broadcast": state.broadcast,
+        "possession_side": state.possession_side,
+        "down_distance": state.down_distance,
+        "last_play": state.last_play,
+        "linescore": state.linescore,
+        "updated_at": state.updated_at.isoformat(),
+    }
+
+
+def _pick_result(event: Event, pick: CalibrationHistory | None) -> str | None:
+    """"hit" | "miss" | null for a final event that had a live recommendation.
+
+    Reuses the same (subject_team vs winner_team) comparison as the calibration
+    grader. Null when the event is not final, has no winner, or had no live
+    recommendation on record.
+    """
+    if pick is None or event.status != "final" or event.winner_team is None:
+        return None
+    if not pick.subject_team:
+        return None
+    return "hit" if pick.subject_team == event.winner_team else "miss"
+
+
+def _live_and_pick_by_event(
+    db: Session, event_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, EventLiveState], dict[uuid.UUID, CalibrationHistory], dict[uuid.UUID, Event]]:
+    """Batch-fetch live state, live-origin pick, and the Event row for a set of ids."""
+    if not event_ids:
+        return {}, {}, {}
+    live_rows = db.execute(
+        select(EventLiveState).where(EventLiveState.event_id.in_(event_ids))
+    ).scalars().all()
+    live_by_id = {row.event_id: row for row in live_rows}
+    pick_rows = db.execute(
+        select(CalibrationHistory).where(
+            CalibrationHistory.event_id.in_(event_ids),
+            CalibrationHistory.origin == "live",
+        )
+    ).scalars().all()
+    pick_by_id: dict[uuid.UUID, CalibrationHistory] = {}
+    for row in pick_rows:
+        existing = pick_by_id.get(row.event_id)
+        if existing is None or (row.flagged_at and existing.flagged_at
+                                and row.flagged_at > existing.flagged_at):
+            pick_by_id[row.event_id] = row
+    event_rows = db.execute(
+        select(Event).where(Event.id.in_(event_ids))
+    ).scalars().all()
+    event_by_id = {row.id: row for row in event_rows}
+    return live_by_id, pick_by_id, event_by_id
+
+
 def _r(value: float | None, places: int = 6) -> float | None:
     """Round a probability for output.
 
@@ -236,7 +307,12 @@ def _r(value: float | None, places: int = 6) -> float | None:
     return None if value is None else round(value, places)
 
 
-def _divergence_payload(r) -> dict:
+def _divergence_payload(
+    r,
+    *,
+    live: EventLiveState | None = None,
+    pick_result: str | None = None,
+) -> dict:
     """Serialize one scored event.
 
     Shared by /divergences and /events/{id} so a deep link and a list row can
@@ -344,6 +420,8 @@ def _divergence_payload(r) -> dict:
             }
             for o in r.outcomes
         ],
+        "live": _live_payload(live),
+        "pick_result": pick_result,
     }
 
 
@@ -387,13 +465,25 @@ def divergences(
     counts: dict[str, int] = {}
     for r in results:
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
+    live_by_id, pick_by_id, event_by_id = _live_and_pick_by_event(
+        db, [r.event_id for r in results]
+    )
     return {
         "min_consensus_books": settings.min_consensus_books,
         "count": len(results),
         "counts_by_status": counts,
         "tradeable_count": sum(1 for r in results if r.tradeable),
         "arbitrage_count": sum(1 for r in results if r.is_arbitrage),
-        "divergences": [_divergence_payload(r) for r in results],
+        "divergences": [
+            _divergence_payload(
+                r,
+                live=live_by_id.get(r.event_id),
+                pick_result=_pick_result(
+                    event_by_id[r.event_id], pick_by_id.get(r.event_id)
+                ) if r.event_id in event_by_id else None,
+            )
+            for r in results
+        ],
     }
 
 
@@ -449,7 +539,12 @@ def event_history(
     }
 
 
-def _event_record(e: Event) -> dict:
+def _event_record(
+    e: Event,
+    *,
+    live: EventLiveState | None = None,
+    pick_result: str | None = None,
+) -> dict:
     """The stored facts about an event, and nothing derived.
 
     A winner only if one was resolved, scores only if they were collected, and
@@ -474,6 +569,8 @@ def _event_record(e: Event) -> dict:
         "unresolvable_reason": e.unresolvable_reason,
         "home_away_source": e.home_away_source,
         "kalshi_event_ticker": e.kalshi_event_ticker,
+        "live": _live_payload(live),
+        "pick_result": pick_result,
     }
 
 
@@ -550,7 +647,18 @@ def events_lookup(
         select(Event).where(Event.id.in_(wanted[:200]))
     ).scalars().all()
 
-    return {"count": len(rows), "events": [_event_record(e) for e in rows]}
+    live_by_id, pick_by_id, _ = _live_and_pick_by_event(db, [e.id for e in rows])
+    return {
+        "count": len(rows),
+        "events": [
+            _event_record(
+                e,
+                live=live_by_id.get(e.id),
+                pick_result=_pick_result(e, pick_by_id.get(e.id)),
+            )
+            for e in rows
+        ],
+    }
 
 
 @app.get("/events/{event_id}")
@@ -579,11 +687,17 @@ def event_detail(
         raise HTTPException(status_code=404, detail="Unknown event")
 
     scored = compute_divergences(db, event_id=event_id, limit=1)
+    live_by_id, pick_by_id, _ = _live_and_pick_by_event(db, [ev.id])
+    live = live_by_id.get(ev.id)
+    pick_result = _pick_result(ev, pick_by_id.get(ev.id))
 
     return {
         "min_consensus_books": settings.min_consensus_books,
-        "event": _event_record(ev),
-        "divergence": _divergence_payload(scored[0]) if scored else None,
+        "event": _event_record(ev, live=live, pick_result=pick_result),
+        "divergence": (
+            _divergence_payload(scored[0], live=live, pick_result=pick_result)
+            if scored else None
+        ),
         "closing": None if scored else _closing_prices(db, ev),
     }
 
