@@ -28,6 +28,7 @@ from arbitrium.divergence.engine import DivergenceStatus, compute_divergences
 from arbitrium.ingestion.polling import odds_poll_interval
 from arbitrium.ingestion.resolution import PendingSummary, pending_resolution
 from arbitrium.logging_config import configure_logging
+from arbitrium.reference.teams import TEAMS_BY_LEAGUE
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -741,9 +742,25 @@ def _gated(pairs: list, label: str) -> dict:
     return out
 
 
+# Sports with a team registry, i.e. sports whose games can ever be graded.
+CALIBRATION_SPORTS: tuple[str, ...] = tuple(sorted(lg.lower() for lg in TEAMS_BY_LEAGUE))
+
+
 @app.get("/performance")
-def performance(db: Session = Depends(get_db)) -> dict:
+def performance(
+    sport: str = Query(
+        "nfl",
+        description="The sport to grade. Every sample gate counts this sport's games "
+        "only; there is deliberately no pooled view.",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
     """The system grading its own accuracy — with the sample size in front.
+
+    ONE SPORT AT A TIME. The 25/200/1000 gates are per sport: a pooled count
+    would let a new sport's first handful of games report a rate on the strength
+    of another sport's season, and would mix two differently-calibrated markets
+    into one curve. NBA therefore starts at n=0 regardless of NFL's sample.
 
     Three separate bodies of evidence, never blended:
 
@@ -758,8 +775,17 @@ def performance(db: Session = Depends(get_db)) -> dict:
       the one signal available before enough games resolve. It is evidence about
       the SIGNAL, not proof of profit.
     """
+    if sport not in CALIBRATION_SPORTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown sport {sport!r}; expected one of {list(CALIBRATION_SPORTS)}",
+        )
+
     sources = {
-        src: _gated(grading.source_reliability_pairs(db, src), f"{src} closing price")
+        src: _gated(
+            grading.source_reliability_pairs(db, src, sport=sport),
+            f"{src} closing price",
+        )
         for src in ("kalshi", "consensus")
     }
 
@@ -767,7 +793,10 @@ def performance(db: Session = Depends(get_db)) -> dict:
     clv_by_origin: dict[str, dict] = {}
     for origin in (grading.ORIGIN_LIVE, grading.ORIGIN_RECONSTRUCTED):
         rows = db.execute(
-            select(CalibrationHistory).where(
+            select(CalibrationHistory)
+            .join(Event, Event.id == CalibrationHistory.event_id)
+            .where(
+                Event.sport == sport,
                 CalibrationHistory.origin == origin,
                 CalibrationHistory.outcome_correct.isnot(None),
             )
@@ -778,7 +807,10 @@ def performance(db: Session = Depends(get_db)) -> dict:
         )
 
         priced = db.execute(
-            select(CalibrationHistory).where(
+            select(CalibrationHistory)
+            .join(Event, Event.id == CalibrationHistory.event_id)
+            .where(
+                Event.sport == sport,
                 CalibrationHistory.origin == origin,
                 CalibrationHistory.clv.isnot(None),
             )
@@ -799,6 +831,8 @@ def performance(db: Session = Depends(get_db)) -> dict:
         }
 
     return {
+        "sport": sport,
+        "sports": list(CALIBRATION_SPORTS),
         "thresholds": {
             "min_report_samples": settings.calibration_min_report_samples,
             "min_fit_samples": settings.calibration_min_fit_samples,

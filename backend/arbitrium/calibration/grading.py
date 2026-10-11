@@ -68,7 +68,7 @@ STATUS_FINAL = "final"
 
 
 def source_reliability_pairs(
-    session: Session, source: str, *, at_close: bool = True
+    session: Session, source: str, *, at_close: bool = True, sport: str | None = None
 ) -> list[tuple[float, bool]]:
     """(stated probability, did it happen) for every resolved game, one per game.
 
@@ -78,11 +78,16 @@ def source_reliability_pairs(
 
     ``at_close`` takes each game's last pre-kickoff price, the source's most
     informed statement about it.
+
+    ``sport`` scopes the sample. Sample gates are per sport: an NBA verdict must
+    not borrow NFL games, so every gated caller passes one.
     """
-    events = session.execute(
-        select(Event.id, Event.home_team, Event.winner_team, Event.scheduled_start)
-        .where(Event.status == STATUS_FINAL, Event.winner_team.isnot(None))
-    ).all()
+    stmt = select(Event.id, Event.home_team, Event.winner_team, Event.scheduled_start).where(
+        Event.status == STATUS_FINAL, Event.winner_team.isnot(None)
+    )
+    if sport is not None:
+        stmt = stmt.where(Event.sport == sport)
+    events = session.execute(stmt).all()
 
     pairs: list[tuple[float, bool]] = []
     for ev in events:
