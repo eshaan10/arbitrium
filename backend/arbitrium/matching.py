@@ -26,6 +26,26 @@ from arbitrium.config import settings
 # match is AMBIGUOUS (e.g. a doubleheader) and we skip rather than guess.
 EVENT_MATCH_TIE_TOLERANCE = timedelta(hours=12)
 
+# Per-sport match windows, overriding settings.event_match_window_days.
+#
+# NBA: the same two teams meet again within 1-3 days ~190 times a season (two-
+# game sets, every playoff series). Under the ±3d NFL window a back-to-back is a
+# SILENT mis-merge, not an ambiguity: the second game is ~24h from the first,
+# well outside the 12h tie tolerance, so the nearer-but-wrong row simply wins.
+# Both NBA sources now carry the exact tip time (Kalshi's is derived from
+# occurrence_datetime, see SeriesConfig.occurrence_lead), so a true match is
+# ~0h apart and 12h is ample. The price: a game postponed to another day stops
+# matching and stays on two single-source rows — visible and recoverable, unlike
+# prices merged into the wrong game.
+MATCH_WINDOW_BY_SPORT: dict[str, timedelta] = {
+    "nba": timedelta(hours=12),
+}
+
+
+def match_window(sport: str) -> timedelta:
+    """The start-time window a game of this sport is matched within."""
+    return MATCH_WINDOW_BY_SPORT.get(sport, timedelta(days=settings.event_match_window_days))
+
 
 @dataclass(frozen=True)
 class EventKey:
@@ -67,17 +87,25 @@ def match_event(
     candidates: Sequence[MatchCandidate],
     *,
     window_days: int | None = None,
+    window: timedelta | None = None,
     tie_tolerance: timedelta = EVENT_MATCH_TIE_TOLERANCE,
 ) -> MatchResult:
     """Match ``target`` against ``candidates``.
 
     Steps: filter to the same sport + exact unordered team pair; keep those whose
-    start is within ±``window_days``; pick the nearest. If the two nearest are
+    start is within the window; pick the nearest. If the two nearest are
     within ``tie_tolerance`` of each other the result is AMBIGUOUS (skip). No
     team-pair candidate, or none inside the window, is UNMATCHED — both leave the
     event provisional and are worth logging.
+
+    The window is ``window`` if given, else ±``window_days``, else the sport's
+    default from :func:`match_window`.
     """
-    window = timedelta(days=window_days if window_days is not None else settings.event_match_window_days)
+    if window is None:
+        if window_days is not None:
+            window = timedelta(days=window_days)
+        else:
+            window = match_window(target.sport)
 
     same_pair = [
         c for c in candidates
@@ -94,7 +122,7 @@ def match_event(
     if not within:
         return MatchResult(
             MatchStatus.UNMATCHED,
-            reason=f"team pair found but nearest start is outside ±{window.days}d window",
+            reason=f"team pair found but nearest start is outside ±{window} window",
         )
 
     best_delta, best = within[0]
