@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatCentsDelta, netMovesByEvent } from "./moves";
-import type { ActivityChange, ActivityResponse } from "./types";
+import { formatCentsDelta, moverForSport, netMovesByEvent } from "./moves";
+import type { ActivityChange, ActivityMover, ActivityResponse } from "./types";
 
 function change(over: Partial<ActivityChange> = {}): ActivityChange {
   return {
@@ -104,5 +104,53 @@ describe("cents delta formatting", () => {
 
   it("is always unsigned — the arrow carries direction", () => {
     expect(formatCentsDelta(-0.05)).toBe(formatCentsDelta(0.05));
+  });
+});
+
+describe("moverForSport", () => {
+  const mover = (sport: string, swing: number, i = 0): ActivityMover => ({
+    event_id: `${sport}-${i}`,
+    sport,
+    home_team: "Home",
+    away_team: "Away",
+    team: `${sport} team ${i}`,
+    swing,
+    changes: 3,
+  });
+  const feed = (movers: ActivityMover[]): ActivityResponse => ({
+    since: "2026-10-10T00:00:00Z",
+    window_hours: 24,
+    changes: [],
+    movers,
+    counts: { changes: 0, movers: movers.length },
+  });
+
+  it("shows the biggest mover of the selected sport, not of the whole feed", () => {
+    const a = feed([mover("nfl", 0.05), mover("nba", 0.03), mover("nba", 0.01, 1)]);
+    expect(moverForSport(a, "nba").mover?.event_id).toBe("nba-0");
+    expect(moverForSport(a, null).mover?.event_id).toBe("nfl-0");
+  });
+
+  it("says plainly when the selected sport has no movement, instead of showing another sport", () => {
+    const r = moverForSport(feed([mover("nfl", 0.05)]), "nba");
+    expect(r.mover).toBeNull();
+    expect(r.empty).toBe("No NBA price movement recorded in the last 24 hours.");
+  });
+
+  it("does not claim no movement when a full list may have cut the sport off", () => {
+    const full = feed(Array.from({ length: 25 }, (_, i) => mover("nfl", 0.05, i)));
+    const r = moverForSport(full, "nba");
+    expect(r.mover).toBeNull();
+    expect(r.empty).toBe("No NBA game is among the 25 biggest price moves in the last 24 hours.");
+  });
+
+  it("keeps the all-sports wording on the All tab", () => {
+    expect(moverForSport(feed([]), null).empty).toBe(
+      "No price moved more than once in the last 24 hours.",
+    );
+  });
+
+  it("says it is loading before the feed arrives", () => {
+    expect(moverForSport(undefined, "nba")).toEqual({ mover: null, empty: "Loading recent movement…" });
   });
 });

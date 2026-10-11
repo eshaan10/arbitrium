@@ -60,7 +60,10 @@ export function opacityOf(d: Divergence): number {
 }
 
 /**
- * Value a REFERENCE stake could actually realise, used only for ordering.
+ * Value a REFERENCE stake could actually realise, used only to pick the
+ * "Interesting right now" lead. The list itself is ordered by the backend's
+ * signal (lib/signal.ts).
+ *
  * Capped by resting size: an edge you can take $1 of is not a better
  * opportunity than a smaller edge you can take $100 of. Never displayed — the
  * confidence bars and the stake simulator carry that to the user.
@@ -73,14 +76,4 @@ export function reachableValue(d: Divergence): number {
   const affordable = REFERENCE_STAKE / r.price;
   const contracts = r.max_contracts == null ? affordable : Math.min(affordable, r.max_contracts);
   return r.edge * contracts;
-}
-
-/** Actionable first by reachable value, then everything else by kickoff. */
-export function sortForDisplay(list: Divergence[]): Divergence[] {
-  return [...list].sort((a, b) => {
-    const av = reachableValue(a);
-    const bv = reachableValue(b);
-    if (av >= 0 || bv >= 0) return bv - av;
-    return new Date(a.scheduled_start).getTime() - new Date(b.scheduled_start).getTime();
-  });
 }

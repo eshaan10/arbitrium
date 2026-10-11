@@ -6,6 +6,8 @@ import { fetchActivity, queryKeys } from "@/lib/api";
 import { reachableValue } from "@/lib/confidence";
 import { teamVisual } from "@/lib/teams";
 import { cents, pct } from "@/lib/format";
+import type { NoEdgeCopy } from "@/lib/copy";
+import { moverForSport } from "@/lib/moves";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import type { Divergence } from "@/lib/types";
 
@@ -88,7 +90,16 @@ function Slot({
   );
 }
 
-export function InterestingNow({ events }: { events: Divergence[] }) {
+export function InterestingNow({
+  events,
+  noEdge,
+  sport,
+}: {
+  events: Divergence[];
+  noEdge: NoEdgeCopy;
+  /** The selected sport tab; movement is shown for it alone. */
+  sport: string | null;
+}) {
   const { data: activity } = useQuery({
     queryKey: queryKeys.activity(24),
     queryFn: () => fetchActivity(24, 200),
@@ -106,7 +117,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
     events.find((d) => d.is_arbitrage) ??
     null;
 
-  const mover = activity?.movers?.[0] ?? null;
+  const { mover, empty: noMover } = moverForSport(activity, sport);
 
   return (
     <section>
@@ -131,7 +142,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
               ? `${pct(bestEdge.recommendation.edge, 1)} edge · ${bestEdge.n_books ?? 0} books`
               : undefined
           }
-          empty="No edge survives the spread right now. That is a real answer, not a gap in the data."
+          empty={noEdge.edgeSlot}
         />
 
         <Slot
@@ -155,7 +166,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
                 }`
               : undefined
           }
-          empty="No arbitrage open. These are rare and usually short-lived."
+          empty={noEdge.arbSlot}
         />
 
         <Slot
@@ -170,11 +181,7 @@ export function InterestingNow({ events }: { events: Divergence[] }) {
               ? `${mover.away_team} @ ${mover.home_team} · ${mover.changes} recorded changes`
               : undefined
           }
-          empty={
-            activity
-              ? "No price moved more than once in the last 24 hours."
-              : "Loading recent movement…"
-          }
+          empty={noMover}
         />
       </div>
     </section>

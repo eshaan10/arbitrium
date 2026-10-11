@@ -1,7 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { logoPath, matchupVisuals, type TeamVisual } from "@/lib/teams";
+import {
+  badgeColor,
+  logoPath,
+  matchupVisuals,
+  teamInitials,
+  type TeamVisual,
+} from "@/lib/teams";
 import { FollowButton } from "./FollowButton";
 
 /**
@@ -22,6 +28,29 @@ import { FollowButton } from "./FollowButton";
  * competing with real controls. The relationship is stated for screen readers,
  * which cannot see weight.
  */
+/**
+ * Stand-in for a team with no vendored logo: its initials in a stable colour.
+ *
+ * An empty circle read as a broken image and said nothing about which team it
+ * was; initials identify the team on their own, before the name is read.
+ */
+function InitialsBadge({ name, size }: { name: string | null; size: number }) {
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center rounded-full bg-raised font-medium leading-none tracking-tight"
+      style={{
+        width: size,
+        height: size,
+        color: badgeColor(name),
+        fontSize: Math.max(8, Math.round(size * 0.4)),
+      }}
+    >
+      {teamInitials(name)}
+    </span>
+  );
+}
+
 function Side({
   name,
   visual,
@@ -43,7 +72,7 @@ function Side({
         {visual ? (
           <Image src={logoPath(visual)} alt="" width={20} height={20} aria-hidden />
         ) : (
-          <span aria-hidden className="h-5 w-5 rounded-full bg-raised" />
+          <InitialsBadge name={name} size={20} />
         )}
         <span
           aria-hidden
@@ -77,11 +106,14 @@ function Side({
  */
 export function TeamLogo({
   visual,
+  name,
   accent,
   size = 30,
   cutout,
 }: {
   visual: TeamVisual | null;
+  /** Used for the initials badge when there is no logo. */
+  name: string | null;
   accent: string;
   size?: number;
   cutout?: string;
@@ -97,7 +129,16 @@ export function TeamLogo({
         boxShadow: `inset 0 0 0 2px ${accent}${cutout ? `, 0 0 0 2px ${cutout}` : ""}`,
       }}
     >
-      {visual ? <Image src={logoPath(visual)} alt="" width={img} height={img} /> : null}
+      {visual ? (
+        <Image src={logoPath(visual)} alt="" width={img} height={img} />
+      ) : (
+        <span
+          className="font-medium leading-none tracking-tight"
+          style={{ color: badgeColor(name), fontSize: Math.max(8, Math.round(size * 0.36)) }}
+        >
+          {teamInitials(name)}
+        </span>
+      )}
     </span>
   );
 }
@@ -128,7 +169,7 @@ function SideLarge({
 }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <TeamLogo visual={visual} accent={accent} />
+      <TeamLogo visual={visual} name={name} accent={accent} />
       <span
         className={`min-w-0 truncate text-[16px] leading-tight ${
           strong ? "font-medium text-text" : "font-normal text-dim"

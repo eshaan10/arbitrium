@@ -3,14 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import type { Mode } from "@/lib/mode";
-
-/** Sports we intend to cover. Only NFL has an ingestion path today. */
-const KNOWN_SPORTS = [
-  { key: "nfl", label: "NFL" },
-  { key: "nba", label: "NBA" },
-  { key: "mlb", label: "MLB" },
-  { key: "nhl", label: "NHL" },
-];
+import type { SportTab } from "@/lib/sports";
 
 function useSetParam() {
   const router = useRouter();
@@ -31,32 +24,16 @@ function useSetParam() {
 }
 
 /**
- * Sport tabs, derived from what the feed actually returned.
+ * Sport tabs, from the UNFILTERED feed (see lib/sports.ts for why).
  *
  * Sports with no data are rendered as disabled tabs saying so, rather than
  * omitted or shown as empty-but-clickable. A tab that looks live and returns
  * nothing reads as a broken product; a tab that says "not yet ingested" is the
- * truth and costs one word.
+ * truth and costs one word. A tab whose state is not known yet stays clickable
+ * and unlabelled rather than making that claim early.
  */
-export function SportTabs({
-  active,
-  available,
-}: {
-  active: string | null;
-  available: string[];
-}) {
+export function SportTabs({ active, tabs }: { active: string | null; tabs: SportTab[] }) {
   const setParam = useSetParam();
-  const have = new Set(available.map((s) => s.toLowerCase()));
-
-  const tabs = [
-    { key: null as string | null, label: "All", enabled: true },
-    ...KNOWN_SPORTS.map((s) => ({ ...s, enabled: have.has(s.key) })),
-    // Anything the feed returned that we did not anticipate still gets a tab.
-    ...available
-      .map((s) => s.toLowerCase())
-      .filter((s) => !KNOWN_SPORTS.some((k) => k.key === s))
-      .map((s) => ({ key: s, label: s.toUpperCase(), enabled: true })),
-  ];
 
   return (
     <div
@@ -66,25 +43,40 @@ export function SportTabs({
     >
       {tabs.map((t) => {
         const isActive = (t.key ?? null) === (active ?? null);
+        // The active tab is never disabled: you are looking at it.
+        const enabled = t.state !== "empty" || isActive;
         return (
           <button
             key={t.key ?? "all"}
             role="tab"
             aria-selected={isActive}
-            disabled={!t.enabled}
-            title={t.enabled ? undefined : `${t.label} is not ingested yet`}
+            disabled={!enabled}
+            title={
+              enabled
+                ? t.count != null
+                  ? `${t.count} ${t.count === 1 ? "game" : "games"}`
+                  : undefined
+                : `${t.label} is not ingested yet`
+            }
             onClick={() => setParam({ sport: t.key })}
             className={`tap shrink-0 whitespace-nowrap rounded-sm px-2.5 py-1.5 text-body transition-colors sm:px-3 ${
               isActive
                 ? // Dark on lime. White on this accent fails contrast.
                   "bg-signal font-medium text-bg"
-                : t.enabled
+                : enabled
                   ? "text-dim hover:bg-raised hover:text-text"
                   : "cursor-not-allowed text-faint"
             }`}
           >
             {t.label}
-            {!t.enabled ? (
+            {enabled && t.count != null && t.count > 0 ? (
+              <span
+                className={`tabular ml-1.5 text-micro ${isActive ? "text-bg/75" : "text-faint"}`}
+              >
+                {t.count}
+              </span>
+            ) : null}
+            {!enabled ? (
               <span className="ml-1.5 hidden text-micro sm:inline">not ingested</span>
             ) : null}
           </button>

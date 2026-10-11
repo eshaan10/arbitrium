@@ -1,15 +1,57 @@
-import { TEAM_VISUALS, type TeamVisual } from "./teams.generated";
+import { TEAM_ALIASES, TEAM_VISUALS, type League, type TeamVisual } from "./teams.generated";
 
-export type { TeamVisual };
+export type { League, TeamVisual };
 
-/** Logos are vendored under public/, not fetched from a third party at runtime. */
+/**
+ * Logos are vendored under public/, not fetched from a third party at runtime,
+ * one folder per league: ESPN abbreviations collide across leagues (atl, det,
+ * hou, lac), so a flat folder would give the Hawks the Falcons' mark.
+ */
 export function logoPath(visual: TeamVisual): string {
-  return `/logos/nfl/${visual.abbr}.png`;
+  return `/logos/${visual.league}/${visual.abbr}.png`;
 }
 
+/** Canonical name first, then a known alternate spelling ("LA Clippers"). */
 export function teamVisual(name: string | null | undefined): TeamVisual | null {
   if (!name) return null;
-  return TEAM_VISUALS[name] ?? null;
+  return TEAM_VISUALS[name] ?? TEAM_VISUALS[TEAM_ALIASES[name] ?? ""] ?? null;
+}
+
+/**
+ * Text colours for the initials badge of a team with no logo.
+ *
+ * Fixed and few rather than generated: each is held to 4.5:1 against
+ * --surface-raised (the badge fill) by teams.badge.test.ts. Picked by a hash of
+ * the name, so a team keeps its colour across renders and sessions; two teams
+ * may share one, which the initials and the name beside them disambiguate.
+ */
+export const BADGE_COLORS = [
+  "#7cb7e8",
+  "#e58f9a",
+  "#8fd1a8",
+  "#c7a4f0",
+  "#e8c26a",
+  "#7fd0d0",
+  "#f0a07a",
+  "#b4c4d8",
+] as const;
+
+export function badgeColor(name: string | null | undefined): string {
+  let h = 0;
+  for (const ch of name ?? "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return BADGE_COLORS[h % BADGE_COLORS.length];
+}
+
+/**
+ * Up to two letters for a team with no logo: the first letters of the first
+ * and last words ("Los Angeles Lakers" -> "LL", not "LA", which two teams
+ * would share). A one-word name gives its first two letters.
+ */
+export function teamInitials(name: string | null | undefined): string {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
 export interface MatchupVisuals {

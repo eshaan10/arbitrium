@@ -5,6 +5,7 @@ import { SearchBar } from "./SearchBar";
 import { RecentlyViewed } from "./RecentlyViewed";
 import { DensityToggle } from "./DensityToggle";
 import type { Mode } from "@/lib/mode";
+import type { SportTab } from "@/lib/sports";
 
 /**
  * Everything that answers "what am I looking at?", in one band.
@@ -21,7 +22,7 @@ import type { Mode } from "@/lib/mode";
  */
 export function Toolbar({
   sport,
-  sports,
+  sportTabs,
   view,
   counts,
   personalReady,
@@ -34,7 +35,7 @@ export function Toolbar({
   stamp,
 }: {
   sport: string | null;
-  sports: string[];
+  sportTabs: SportTab[];
   view: View;
   counts: Record<View, number>;
   personalReady: boolean;
@@ -60,7 +61,7 @@ export function Toolbar({
           the whole list is already in view. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-3">
         <div className="order-2 sm:order-1">
-          <SportTabs active={sport} available={sports} />
+          <SportTabs active={sport} tabs={sportTabs} />
         </div>
 
         <div className="order-1 flex items-center gap-2 sm:order-2 sm:ml-auto">

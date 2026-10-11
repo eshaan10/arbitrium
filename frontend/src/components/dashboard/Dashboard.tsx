@@ -9,8 +9,9 @@ import {
   LIST_LIMIT,
   queryKeys,
 } from "@/lib/api";
-import { sortForDisplay } from "@/lib/confidence";
-import { groupEvents } from "@/lib/grouping";
+import { groupEvents, type Group } from "@/lib/grouping";
+import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
+import { browseAllHref, sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
 import { netMovesByEvent } from "@/lib/moves";
 import {
@@ -23,6 +24,7 @@ import { usePriceFlash } from "@/lib/usePriceDeltas";
 import { useIsClient } from "@/lib/useIsClient";
 import { recSignature } from "@/lib/changes";
 import { shouldFold, splitFoldable } from "@/lib/fold";
+import { noEdgeCopy } from "@/lib/copy";
 import { EventCard } from "@/components/event/EventCard";
 import { EventRow } from "@/components/event/EventRow";
 import { EmptyState } from "@/components/primitives";
@@ -50,12 +52,15 @@ import type { Divergence, DivergencesResponse } from "@/lib/types";
  */
 export function Dashboard({
   initialData,
+  initialAllData,
   sport,
   mode,
   view,
   serverNow,
 }: {
   initialData: DivergencesResponse | null;
+  /** The unfiltered feed, for sport-tab availability; null on the All tab. */
+  initialAllData: DivergencesResponse | null;
   sport: string | null;
   mode: Mode;
   view: View;
@@ -67,6 +72,8 @@ export function Dashboard({
   const { density } = useDensity();
   // One open row at a time, across every group.
   const [openRow, setOpenRow] = useState<string | null>(null);
+  // "Show N more" in Today, which expands in place until the page is left.
+  const [todayExpanded, setTodayExpanded] = useState(false);
 
   const {
     followedTeams,
@@ -88,6 +95,17 @@ export function Dashboard({
     queryKey: queryKeys.divergences(query),
     queryFn: () => fetchDivergences(query),
     initialData: initialData ?? undefined,
+  });
+
+  // The UNFILTERED feed, for the sport tabs' availability and counts. On the
+  // All tab this is the same key as the query above, so React Query serves both
+  // from one request; on a sport tab it is the one extra request that keeps the
+  // other sports from reading "not ingested".
+  const allQuery = { limit: LIST_LIMIT };
+  const { data: allData } = useQuery({
+    queryKey: queryKeys.divergences(allQuery),
+    queryFn: () => fetchDivergences(allQuery),
+    initialData: (sport == null ? initialData : initialAllData) ?? undefined,
   });
 
   // Shared with the ticker and the rail — one request serves all three, so the
@@ -115,6 +133,9 @@ export function Dashboard({
   }
 
   const minBooks = data?.min_consensus_books ?? 3;
+  // Shared by the rail and the Recommended empty state, so both explain an
+  // empty answer the same way for the feed on screen.
+  const noEdge = noEdgeCopy(all);
   const stamp = !isClient
     ? ""
     : isFetching
@@ -140,9 +161,11 @@ export function Dashboard({
     "my-games": all.filter(isPinnedGame).length,
   };
 
-  const sports = [
-    ...new Set(all.map((d) => d.sport).filter((s): s is string => !!s)),
-  ];
+  const tabs = sportTabs({
+    activeSport: sport,
+    filtered: data?.divergences,
+    unfiltered: allData?.divergences,
+  });
 
   const matchesView = (d: Divergence) => {
     if (view === "recommended") return d.recommendation != null;
@@ -153,12 +176,14 @@ export function Dashboard({
     return true;
   };
 
-  const visible = sortForDisplay(
-    all.filter(
-      (d) =>
-        matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
-    ),
+  // Sections are ranked by signal individually (see sectionRows), so the
+  // flat list needs no order of its own.
+  const visible = all.filter(
+    (d) => matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
   );
+  // One scale for every meter on the page, so two rows' meters compare
+  // honestly even when they sit in different sections.
+  const scale = signalScale(visible);
 
   // Grouping decides DOM structure, so it uses the SERVER's clock until the
   // client is live; both renders then agree. After that it rides the poll
@@ -169,6 +194,23 @@ export function Dashboard({
   );
 
   const foldUnscoreable = shouldFold(view, search);
+
+  /**
+   * One section's rows: strongest signal first, unscoreable games folded as
+   * before, and Today capped at the TODAY_PER_SPORT strongest per sport.
+   *
+   * The cap follows the fold's rules (shouldFold): a search, My Teams, My
+   * Games and the Can't-score view must show every match, so they are never
+   * capped. Hidden rows are only ever behind "Show N more", and the section
+   * heading keeps counting all of them.
+   */
+  const sectionRows = (group: Group) => {
+    const [shown, folded] = splitFoldable(rankBySignal(group.events), foldUnscoreable);
+    if (group.key !== "today" || !foldUnscoreable) return { rows: shown, more: 0, folded };
+    const { kept, hidden } = capPerSport(shown, TODAY_PER_SPORT);
+    if (hidden.length === 0) return { rows: shown, more: 0, folded };
+    return { rows: todayExpanded ? shown : kept, more: hidden.length, folded };
+  };
 
   const recordOpen = (ev: Divergence) =>
     record({
@@ -186,12 +228,12 @@ export function Dashboard({
 
       <SinceLastVisit events={all} />
 
-      <InterestingNow events={all} />
+      <InterestingNow events={all} noEdge={noEdge} sport={sport} />
 
       <div>
         <Toolbar
           sport={sport}
-          sports={sports}
+          sportTabs={tabs}
           view={view}
           counts={counts}
           personalReady={followReady && gamesReady}
@@ -207,23 +249,20 @@ export function Dashboard({
         <div className="pt-6">
           {groups.length === 0 ? (
             <EmptyState
-              title={
-                view === "recommended" && !search ? "Nothing worth acting on" : "Nothing here right now"
-              }
+              title={view === "recommended" && !search ? noEdge.title : "Nothing here right now"}
             >
               {search ? (
                 `No events match "${search}".`
               ) : view === "recommended" ? (
                 <>
                   {/* Recommended is the landing view, so its empty state has to
-                      carry its own weight: this is a genuine reading, not a
-                      failure, and the way out is one click with the number
-                      already on it. */}
-                  No edge currently survives crossing the Kalshi spread. That is a real answer
-                  rather than a gap — roughly half of measured divergences are smaller than the
-                  spread needed to capture them.{" "}
+                      carry its own weight and say WHY it is empty — a spread
+                      nothing cleared, or no second price to compare at all —
+                      and the way out is one click with the number already on
+                      it. */}
+                  {noEdge.body}{" "}
                   <Link
-                    href="/?view=all"
+                    href={browseAllHref(sport, mode)}
                     className="tap text-signal-600 underline-offset-2 hover:underline"
                   >
                     Browse all {counts.all} events →
@@ -242,7 +281,7 @@ export function Dashboard({
           ) : (
             <div className="space-y-9">
               {groups.map((group) => {
-                const [shown, folded] = splitFoldable(group.events, foldUnscoreable);
+                const { rows: shown, more, folded } = sectionRows(group);
                 return (
                 <section key={group.key}>
                   <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
@@ -268,6 +307,7 @@ export function Dashboard({
                           onOpen={recordOpen}
                           open={openRow === d.event_id}
                           onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                          signalScale={scale}
                         />
                       ))}
                     </div>
@@ -289,10 +329,23 @@ export function Dashboard({
                           onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
                           move={moves.get(d.event_id)}
                           onOpen={recordOpen}
+                          signalScale={scale}
                         />
                       ))}
                     </div>
                   )}
+                  {more > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={todayExpanded}
+                      onClick={() => setTodayExpanded((v) => !v)}
+                      className="tap mt-3 rounded-sm px-1 text-[13px] font-medium text-signal-600 underline-offset-4 hover:underline"
+                    >
+                      {todayExpanded
+                        ? "Show fewer"
+                        : `Show ${more} more ${more === 1 ? "game" : "games"}`}
+                    </button>
+                  ) : null}
                   <UnscoreableGroup events={folded} minBooks={minBooks} />
                 </section>
                 );

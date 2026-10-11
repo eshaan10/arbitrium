@@ -14,6 +14,7 @@ import { confidence, opacityOf } from "@/lib/confidence";
 import { cents, fairValueCents, timeToKickoffLong } from "@/lib/format";
 import { teamVisual } from "@/lib/teams";
 import { KickoffTime } from "./KickoffTime";
+import { SignalMeter } from "./Signal";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence, Recommendation } from "@/lib/types";
 import type { Mode } from "@/lib/mode";
@@ -40,6 +41,7 @@ export function EventCard({
   onToggleFavoriteGame,
   move,
   onOpen,
+  signalScale,
 }: {
   d: Divergence;
   minBooks: number;
@@ -50,6 +52,8 @@ export function EventCard({
   onToggleFavoriteGame: (eventId: string) => void;
   move?: NetMove;
   onOpen: (d: Divergence) => void;
+  /** Strongest signal in the list this card sits in; omit to hide the meter. */
+  signalScale?: number;
 }) {
   const r = d.recommendation;
   const kalshi = kalshiUrl(d.kalshi_series, d.kalshi_event_ticker);
@@ -69,6 +73,7 @@ export function EventCard({
         move={move}
         onOpen={onOpen}
         kalshi={kalshi}
+        signalScale={signalScale}
       />
     );
   }
@@ -116,8 +121,11 @@ export function EventCard({
       <DateLine d={d} move={move} />
 
       {/* --- quiet hero ---------------------------------------------------- */}
-      <div className="mt-3 text-[15px] text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-muted">
         {d.status === "scored" ? "No edge right now" : "Can’t be scored yet"}
+        {d.status === "scored" && signalScale != null ? (
+          <SignalLine d={d} scale={signalScale} />
+        ) : null}
       </div>
 
       {/* --- evidence ------------------------------------------------------ */}
@@ -230,6 +238,16 @@ function Strength({ bars, label }: { bars: number; label: string }) {
   );
 }
 
+/** The meter, its word, and its "?", above the card's whole-card link. */
+function SignalLine({ d, scale }: { d: Divergence; scale: number }) {
+  return (
+    <span className="relative z-20 inline-flex items-center gap-1.5">
+      <SignalMeter d={d} scale={scale} label />
+      <InfoPopover term="signal" />
+    </span>
+  );
+}
+
 /**
  * A card with a directional recommendation. Top to bottom:
  *
@@ -255,6 +273,7 @@ function RecommendationCard({
   move,
   onOpen,
   kalshi,
+  signalScale,
 }: {
   d: Divergence;
   r: Recommendation;
@@ -267,6 +286,7 @@ function RecommendationCard({
   move?: NetMove;
   onOpen: (d: Divergence) => void;
   kalshi: string | null;
+  signalScale?: number;
 }) {
   const yes = r.side === "yes";
   const short = teamVisual(r.team)?.short ?? r.team;
@@ -312,6 +332,7 @@ function RecommendationCard({
           Buy {yes ? "Yes" : "No"} · {cents(r.price)}
         </span>
         <Strength bars={conf.bars} label={conf.label} />
+        {signalScale != null ? <SignalLine d={d} scale={signalScale} /> : null}
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-muted">
         Pays $1 if they {yes ? "win" : "lose"}. Sportsbooks say{" "}
