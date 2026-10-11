@@ -18,6 +18,31 @@ export function teamVisual(name: string | null | undefined): TeamVisual | null {
 }
 
 /**
+ * Text colours for the initials badge of a team with no logo.
+ *
+ * Fixed and few rather than generated: each is held to 4.5:1 against
+ * --surface-raised (the badge fill) by teams.badge.test.ts. Picked by a hash of
+ * the name, so a team keeps its colour across renders and sessions; two teams
+ * may share one, which the initials and the name beside them disambiguate.
+ */
+export const BADGE_COLORS = [
+  "#7cb7e8",
+  "#e58f9a",
+  "#8fd1a8",
+  "#c7a4f0",
+  "#e8c26a",
+  "#7fd0d0",
+  "#f0a07a",
+  "#b4c4d8",
+] as const;
+
+export function badgeColor(name: string | null | undefined): string {
+  let h = 0;
+  for (const ch of name ?? "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return BADGE_COLORS[h % BADGE_COLORS.length];
+}
+
+/**
  * Up to two letters for a team with no logo: the first letters of the first
  * and last words ("Los Angeles Lakers" -> "LL", not "LA", which two teams
  * would share). A one-word name gives its first two letters.

@@ -59,9 +59,9 @@ function Logos({ d, size, cutout }: { d: Divergence; size: number; cutout: strin
   const { home, away, homeAccent, awayAccent } = matchupVisuals(d.home_team, d.away_team);
   return (
     <span aria-hidden className="flex shrink-0 items-center">
-      <TeamLogo visual={away} accent={awayAccent} size={size} cutout={cutout} />
+      <TeamLogo visual={away} name={d.away_team} accent={awayAccent} size={size} cutout={cutout} />
       <span className="-ml-2">
-        <TeamLogo visual={home} accent={homeAccent} size={size} cutout={cutout} />
+        <TeamLogo visual={home} name={d.home_team} accent={homeAccent} size={size} cutout={cutout} />
       </span>
     </span>
   );
