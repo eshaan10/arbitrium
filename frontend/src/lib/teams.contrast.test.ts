@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
 import { CONTRAST_FLOOR, TEAM_VISUALS } from "./teams.generated";
 
 const BACKGROUND = "#0f1012";
-const LOGO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../public/logos/nfl");
+const LOGO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../public/logos");
 
 function relativeLuminance(hex: string): number {
   const h = hex.replace("#", "");
@@ -43,8 +43,9 @@ function contrastRatio(a: string, b: string): number {
 const entries = Object.entries(TEAM_VISUALS);
 
 describe("generated team visuals", () => {
-  it("covers all 32 NFL teams", () => {
-    expect(entries).toHaveLength(32);
+  it("covers all 32 NFL and 30 NBA teams", () => {
+    const count = (league: string) => entries.filter(([, v]) => v.league === league).length;
+    expect([count("nfl"), count("nba")]).toEqual([32, 30]);
   });
 
   it.each(entries)("%s: accent clears the contrast floor", (name, visual) => {
@@ -69,8 +70,8 @@ describe("generated team visuals", () => {
     // changes upstream (the WAS -> wsh case) shows up here as a missing file
     // rather than as a blank square in production.
     expect(
-      existsSync(resolve(LOGO_DIR, `${visual.abbr}.png`)),
-      `Missing logo for ${name}: public/logos/nfl/${visual.abbr}.png`,
+      existsSync(resolve(LOGO_ROOT, visual.league, `${visual.abbr}.png`)),
+      `Missing logo for ${name}: public/logos/${visual.league}/${visual.abbr}.png`,
     ).toBe(true);
   });
 

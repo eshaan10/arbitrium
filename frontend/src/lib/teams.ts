@@ -1,15 +1,32 @@
-import { TEAM_VISUALS, type TeamVisual } from "./teams.generated";
+import { TEAM_ALIASES, TEAM_VISUALS, type League, type TeamVisual } from "./teams.generated";
 
-export type { TeamVisual };
+export type { League, TeamVisual };
 
-/** Logos are vendored under public/, not fetched from a third party at runtime. */
+/**
+ * Logos are vendored under public/, not fetched from a third party at runtime,
+ * one folder per league: ESPN abbreviations collide across leagues (atl, det,
+ * hou, lac), so a flat folder would give the Hawks the Falcons' mark.
+ */
 export function logoPath(visual: TeamVisual): string {
-  return `/logos/nfl/${visual.abbr}.png`;
+  return `/logos/${visual.league}/${visual.abbr}.png`;
 }
 
+/** Canonical name first, then a known alternate spelling ("LA Clippers"). */
 export function teamVisual(name: string | null | undefined): TeamVisual | null {
   if (!name) return null;
-  return TEAM_VISUALS[name] ?? null;
+  return TEAM_VISUALS[name] ?? TEAM_VISUALS[TEAM_ALIASES[name] ?? ""] ?? null;
+}
+
+/**
+ * Up to two letters for a team with no logo: the first letters of the first
+ * and last words ("Los Angeles Lakers" -> "LL", not "LA", which two teams
+ * would share). A one-word name gives its first two letters.
+ */
+export function teamInitials(name: string | null | undefined): string {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
 export interface MatchupVisuals {

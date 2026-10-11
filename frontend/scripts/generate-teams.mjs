@@ -1,9 +1,13 @@
 /**
  * Generates src/lib/teams.generated.ts and downloads team logos into
- * public/logos/nfl/.
+ * public/logos/<league>/ (nfl, nba).
  *
  * Run with: pnpm gen:teams
  *      or:  pnpm gen:teams --colors-only   (recompute accents, keep the logos)
+ *
+ * Logos are per-league folders because ESPN abbreviations collide across
+ * leagues (atl, det, hou, lac, ...): one flat folder would silently give the
+ * Hawks the Falcons' logo.
  *
  * Why a generator and not a runtime lookup:
  *
@@ -25,13 +29,31 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const LOGO_DIR = resolve(ROOT, "public/logos/nfl");
 const OUT = resolve(ROOT, "src/lib/teams.generated.ts");
 
-const TEAMS_URL =
-  "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=40";
-const logoUrl = (abbr) =>
-  `https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/${abbr}.png`;
+/** Every league with a team registry in backend/arbitrium/reference/teams.py. */
+const LEAGUES = [
+  { key: "nfl", path: "football/nfl", count: 32 },
+  { key: "nba", path: "basketball/nba", count: 30 },
+];
+
+const teamsUrl = (league) =>
+  `https://site.api.espn.com/apis/site/v2/sports/${league.path}/teams?limit=40`;
+const logoUrl = (league, abbr) =>
+  `https://a.espncdn.com/i/teamlogos/${league.key}/500/scoreboard/${abbr}.png`;
+const logoDir = (league) => resolve(ROOT, "public/logos", league.key);
+
+/**
+ * ESPN displayName -> our canonical name, where they differ.
+ *
+ * The canonical name is The Odds API spelling, which the backend registry and
+ * every event row use as the join key. ESPN abbreviates exactly one team; the
+ * registry's ESPN ids (asserted by teams.registry.test.ts) are what prove the
+ * two names are the same team.
+ */
+const NAME_ALIASES = {
+  "LA Clippers": "Los Angeles Clippers",
+};
 
 /**
  * Contrast floor for an accent against the CARD surface (--surface), which is
@@ -124,22 +146,22 @@ export function lift(hex, floor = CONTRAST_FLOOR) {
 
 /* --- generation ---------------------------------------------------------- */
 
-async function main() {
-  const res = await fetch(TEAMS_URL);
-  if (!res.ok) throw new Error(`ESPN teams request failed: ${res.status}`);
+async function leagueRows(league) {
+  const res = await fetch(teamsUrl(league));
+  if (!res.ok) throw new Error(`ESPN ${league.key} teams request failed: ${res.status}`);
   const payload = await res.json();
   const teams = payload.sports[0].leagues[0].teams.map((t) => t.team);
 
-  if (teams.length !== 32) {
-    throw new Error(`Expected 32 NFL teams, got ${teams.length}`);
+  if (teams.length !== league.count) {
+    throw new Error(`Expected ${league.count} ${league.key} teams, got ${teams.length}`);
   }
 
-  await mkdir(LOGO_DIR, { recursive: true });
+  await mkdir(logoDir(league), { recursive: true });
 
   const rows = [];
   for (const t of teams) {
     const abbr = t.abbreviation.toLowerCase();
-    const url = logoUrl(abbr);
+    const url = logoUrl(league, abbr);
     if (!COLORS_ONLY) {
       const img = await fetch(url);
       if (!img.ok) {
@@ -147,13 +169,15 @@ async function main() {
         // how the WAS/wsh mismatch would have shipped unnoticed.
         throw new Error(`Logo 404 for ${t.displayName} (${abbr}): ${url}`);
       }
-      await writeFile(resolve(LOGO_DIR, `${abbr}.png`), Buffer.from(await img.arrayBuffer()));
+      await writeFile(resolve(logoDir(league), `${abbr}.png`), Buffer.from(await img.arrayBuffer()));
     }
 
     const primary = (t.color || "").toLowerCase();
     const alternate = (t.alternateColor || primary).toLowerCase();
     rows.push({
-      name: t.displayName,
+      name: NAME_ALIASES[t.displayName] ?? t.displayName,
+      league: league.key,
+      espnId: String(t.id),
       abbr,
       short: t.shortDisplayName,
       accent: `#${lift(primary)}`,
@@ -161,30 +185,58 @@ async function main() {
       raw: `#${primary}`,
     });
   }
+  return rows;
+}
 
-  rows.sort((a, b) => a.name.localeCompare(b.name));
+async function main() {
+  const rows = [];
+  for (const league of LEAGUES) rows.push(...(await leagueRows(league)));
+
+  // Keyed by full name, so a name shared across leagues would silently drop a
+  // team. None is today; fail if one ever appears.
+  const seen = new Set();
+  for (const r of rows) {
+    if (seen.has(r.name)) throw new Error(`Team name used by two leagues: ${r.name}`);
+    seen.add(r.name);
+  }
+
+  rows.sort((a, b) => a.league.localeCompare(b.league) || a.name.localeCompare(b.name));
 
   const body = rows
     .map(
       (r) =>
-        `  ${JSON.stringify(r.name)}: { abbr: ${JSON.stringify(r.abbr)}, ` +
+        `  ${JSON.stringify(r.name)}: { league: ${JSON.stringify(r.league)}, ` +
+        `espnId: ${JSON.stringify(r.espnId)}, abbr: ${JSON.stringify(r.abbr)}, ` +
         `short: ${JSON.stringify(r.short)}, accent: ${JSON.stringify(r.accent)}, ` +
         `alt: ${JSON.stringify(r.alt)}, raw: ${JSON.stringify(r.raw)} },`,
     )
     .join("\n");
+  const aliases = Object.entries(NAME_ALIASES)
+    .map(([from, to]) => `  ${JSON.stringify(from)}: ${JSON.stringify(to)},`)
+    .join("\n");
 
   const file = `/* GENERATED by scripts/generate-teams.mjs — do not edit by hand.
  *
- * Keyed by canonical team name, which is the join key /divergences already
- * uses: all 32 names match ESPN's displayName exactly, verified against the
- * live feed.
+ * Keyed by canonical team name (The Odds API spelling), which is the join key
+ * /divergences already uses. Every name matches ESPN's displayName except the
+ * ones in TEAM_ALIASES; ESPN ids match backend/arbitrium/reference/teams.py,
+ * asserted by teams.registry.test.ts.
  *
  * \`accent\` and \`alt\` are the brand colours LIFTED to clear ${CONTRAST_FLOOR}:1 against
  * the card surface (#${BG}); \`raw\` is the untouched brand colour, kept only so a regression is
  * auditable. Asserted by teams.contrast.test.ts.
  */
 
+export type League = ${JSON.stringify(LEAGUES.map((l) => l.key))
+    .slice(1, -1)
+    .split(",")
+    .join(" | ")};
+
 export interface TeamVisual {
+  league: League;
+  /** ESPN team.id: unique within a league only. */
+  espnId: string;
+  /** ESPN abbreviation, lower-cased; also the logo file name. */
   abbr: string;
   short: string;
   /** Brand colour, lightness-lifted to be legible on the app background. */
@@ -200,11 +252,20 @@ export const CONTRAST_FLOOR = ${CONTRAST_FLOOR};
 export const TEAM_VISUALS: Record<string, TeamVisual> = {
 ${body}
 };
+
+/** Other spellings of a canonical name (ESPN's display name, mostly). */
+export const TEAM_ALIASES: Record<string, string> = {
+${aliases}
+};
 `;
 
   await writeFile(OUT, file);
   console.log(`Wrote ${rows.length} teams -> ${OUT}`);
-  console.log(COLORS_ONLY ? "Logos left as they are (--colors-only)" : `Logos -> ${LOGO_DIR}`);
+  console.log(
+    COLORS_ONLY
+      ? "Logos left as they are (--colors-only)"
+      : `Logos -> ${LEAGUES.map(logoDir).join(", ")}`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
