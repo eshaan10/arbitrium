@@ -86,8 +86,10 @@ falls back per field, and documents the units where they're read.
 
 **Delivered**
 
-- Outcome resolution from the Odds API scores feed, with an **ESPN fallback**
-  when the primary source has no result.
+- Outcome resolution from **ESPN first** (free), with the Odds API scores feed
+  (2 credits a call) as a fallback for anything ESPN has not resolved 48h
+  after kickoff. ESPN started as the fallback; it was promoted when NBA and
+  NHL made paid resolution a real share of the monthly budget.
 - A permanent-loss countdown: the scores endpoint only reaches back 3 days, so
   `/health` reports `hours_until_next_data_loss` — converting "something is
   wrong" into "you have N hours before this outcome is gone forever".
@@ -123,7 +125,32 @@ Odds API against the flat 15-minute setting while the poller ran adaptively —
 a threshold wrong by up to 96×, so a healthy poller was reported stale for most
 of every week. The inverse of the Phase 1 outage, and equally corrosive: a
 monitor that cries wolf stops being read. Fixed to use the interval actually in
-force, and pinned by a test that fails on reversion.
+force, and pinned by a test that fails on reversion. (Superseded by the
+game-clock schedule below, which has no interval at all.)
+
+### Odds API credit budget · **Built**
+
+Three sports do not fit 500 credits a month on any interval. The Odds API now
+spends only when it buys something:
+
+- **Per-sport config**: enabled flag, seasonal window per sport key (the NBA
+  preseason key stops itself after Oct 16), and a cap on non-closing calls per
+  day. NBA and NHL ship disabled until their team registries land.
+- **Kalshi gating**: no credit for a sport unless Kalshi lists a game starting
+  within 36h and the Kalshi poller is fresh.
+- **Game-clock checkpoints** at T-24h, T-6h, T-1h and the close (T-10m),
+  coalesced across a sport by interval stabbing (one call prices every game).
+  Exact start times come from the free `/events` endpoint.
+- **A credit governor** reading `x-requests-remaining`/`x-requests-last` from
+  every response into an append-only `credit_log`: a 10% reserve nothing may
+  touch, a daily allowance to the 1st at 00:00 UTC, the trailing week's closing
+  spend set aside first, and pace tiers that drop T-24h and thin-liquidity
+  games before anything else. **A close is never dropped for pace.**
+- `/usage` reads the ledger; `/health` judges consensus by missed closes.
+
+Measured on a synthetic November with all three sports: before closes were set
+aside, the month ran into the reserve in its last week and lost 58 of 475
+closes; after, all 475 were taken and the month ended at the reserve.
 
 ---
 

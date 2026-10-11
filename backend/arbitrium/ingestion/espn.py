@@ -1,16 +1,18 @@
-"""ESPN scoreboard — the backfill source for outcomes The Odds API missed.
+"""ESPN scoreboard — the primary source of outcomes.
 
 WHY THIS EXISTS. The Odds API scores endpoint caps ``daysFrom`` at 3, so an
 outcome not collected within ~72h of the final whistle is gone from that source
 forever. That is not theoretical: a seven-day outage cost a real NFL preseason
 result, which the Odds API could no longer supply and ESPN still had.
 
-ROLE: FALLBACK, NOT PRIMARY. The Odds API stays the primary resolver because it
-shares the exact ``odds_api_event_id`` we already store (verified 100/100), which
-is an unambiguous join. ESPN is an undocumented endpoint with no SLA and no
-shared identifier — matching has to go through the team+date matcher, which
-carries real doubleheader ambiguity. Keeping ESPN second means a change in its
-shape costs nothing for three days and shows up in ``ingest_runs`` first.
+ROLE: PRIMARY (it used to be the fallback). Each scores call costs 2 credits,
+and with NFL, NBA and NHL in season together, resolving everything through The
+Odds API would spend a sizeable share of a 500-credit month on data ESPN gives
+away. The cost of the switch is the join: ESPN has no shared identifier, so a
+result goes through the team+date matcher, which carries doubleheader
+ambiguity in principle (none of NFL/NBA/NHL plays them). The Odds API remains
+the fallback for anything ESPN has not resolved well inside the window — see
+``resolution.run_resolution``.
 
 What it buys: unlimited history (verified back through 2022), zero cost, no API
 key, and NFL team names that resolve 20/20 against the existing registry. With
@@ -34,23 +36,27 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from arbitrium.ingestion.outcomes import ScoreExtract, coerce_score, decide_winner
-from arbitrium.reference.teams import resolve_by_name
+from arbitrium.reference.teams import Team, resolve_by_name, team_by_espn_id
 
 logger = logging.getLogger(__name__)
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
 
 # our sport -> ESPN's path segment. Extend alongside SERIES_CONFIG/ODDS_SPORTS.
-# NOTE: 'nba' is listed for completeness but the team registry currently holds
-# NFL only, so NBA payloads would be skipped on unresolved names — see
-# reference/teams.py before enabling it.
 ESPN_SPORTS: dict[str, str] = {
     "nfl": "football/nfl",
     "nba": "basketball/nba",
+    "nhl": "hockey/nhl",
 }
 
 # ESPN's league label per sport, for the team registry lookup.
-ESPN_LEAGUE: dict[str, str] = {"nfl": "NFL", "nba": "NBA"}
+ESPN_LEAGUE: dict[str, str] = {"nfl": "NFL", "nba": "NBA", "nhl": "NHL"}
+
+# Leagues resolved by ESPN's numeric ``team.id`` rather than display name. NFL
+# names resolve 20/20 against the registry, so NFL keeps the name path; NBA and
+# NHL go by id from the start, which no rename or "LA"/"Los Angeles" spelling
+# can break.
+ESPN_ID_LEAGUES = frozenset({"NBA", "NHL"})
 
 
 class EspnClient:
@@ -89,6 +95,23 @@ class EspnClient:
             return []
 
 
+def resolve_by_espn_id(league: str, espn_id: str | None) -> Team | None:
+    """Registry lookup by ESPN ``team.id``, scoped to the league.
+
+    Ids collide across leagues (ESPN id 1 is both the Falcons and the Hawks),
+    so the league is never optional. A league with no registry yet (NHL today)
+    resolves nothing, and its results are skipped and logged, never guessed
+    from a name.
+    """
+    return team_by_espn_id(league, espn_id)
+
+
+def _resolve_espn_team(league: str, team: dict) -> Team | None:
+    if league in ESPN_ID_LEAGUES:
+        return resolve_by_espn_id(league, team.get("id"))
+    return resolve_by_name(league, team.get("displayName") or "")
+
+
 def sweep_dates(start: datetime) -> list[str]:
     """The ``YYYYMMDD`` values that could contain a game kicking off at ``start``.
 
@@ -113,12 +136,11 @@ def extract_espn_event(payload: dict, sport: str) -> ScoreExtract | None:
     if not status.get("completed"):
         return None  # scheduled or in progress
 
-    sides: dict[str, tuple[str, int | None]] = {}
+    sides: dict[str, tuple[dict, int | None]] = {}
     for c in comp.get("competitors") or []:
         side = c.get("homeAway")
-        name = ((c.get("team") or {}).get("displayName")) or ""
         if side in ("home", "away"):
-            sides[side] = (name, coerce_score(c.get("score")))
+            sides[side] = (c.get("team") or {}, coerce_score(c.get("score")))
     if set(sides) != {"home", "away"}:
         logger.warning("ESPN event %s: missing home/away competitors; skipping", payload.get("id"))
         return None
@@ -129,19 +151,21 @@ def extract_espn_event(payload: dict, sport: str) -> ScoreExtract | None:
         return None
 
     league = ESPN_LEAGUE.get(sport, sport.upper())
-    home = resolve_by_name(league, home_raw)
-    away = resolve_by_name(league, away_raw)
+    home = _resolve_espn_team(league, home_raw)
+    away = _resolve_espn_team(league, away_raw)
     if home is None or away is None:
         logger.warning(
-            "ESPN event %s: unresolved team(s) home=%r away=%r; skipping "
-            "(registry gap — extend reference/teams.py)",
-            payload.get("id"), home_raw, away_raw,
+            "ESPN event %s: unresolved team(s) home=%r (id %s) away=%r (id %s); "
+            "skipping (registry gap — extend reference/teams.py)",
+            payload.get("id"), home_raw.get("displayName"), home_raw.get("id"),
+            away_raw.get("displayName"), away_raw.get("id"),
         )
         return None
 
     if home_score == 0 and away_score == 0:
-        # Same guard as the Odds API path: for the sports supported today a
-        # completed 0-0 is far likelier a bad flag than a real result.
+        # Same guard as the Odds API path: for the sports supported today (NHL
+        # included — it settles ties in a shootout) a completed 0-0 is far
+        # likelier a bad flag than a real result.
         logger.warning("ESPN event %s: completed 0-0, implausible for %s; skipping",
                        payload.get("id"), league)
         return None

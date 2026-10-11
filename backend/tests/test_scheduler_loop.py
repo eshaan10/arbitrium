@@ -235,6 +235,81 @@ def test_only_the_quota_spending_sources_are_marked_paid():
     assert paid == {"odds_api", "resolution"}
 
 
+# --- the game-clock odds source ----------------------------------------------
+
+
+class _Plan:
+    """A plan function scripted per call: seconds until due, None, or an error."""
+
+    def __init__(self, *script):
+        self.script = list(script)
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        step = self.script.pop(0) if len(self.script) > 1 else self.script[0]
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+
+def _planned(pass_fn, plan, *, replan=300):
+    return flows._PlannedSource("odds_api", pass_fn, plan, replan=replan)
+
+
+def test_the_odds_source_is_the_game_clock_planner():
+    (odds,) = [s for s in flows.build_sources() if s.name == "odds_api"]
+    assert isinstance(odds, flows._PlannedSource) and odds.paid
+
+
+def test_nothing_planned_never_runs_but_keeps_replanning():
+    fn, plan = _Scripted(), _Plan(None)
+    source = _planned(fn, plan)
+    for t in range(0, 3000, 5):
+        run_cycle([source], t)
+    assert fn.calls == 0
+    assert plan.calls == 10  # once per 300s replan, not once per 5s tick
+
+
+def test_a_planned_pass_runs_when_due_and_then_replans():
+    fn, plan = _Scripted(_ok()), _Plan(120.0, None)
+    source = _planned(fn, plan)
+    run_cycle([source], 0)
+    assert fn.calls == 0 and source.next_run_at == 120.0
+    run_cycle([source], 120)
+    assert fn.calls == 1
+    assert source.next_run_at == float("inf")  # replanned straight after the pass
+
+
+def test_a_failed_plan_does_not_run_blind():
+    fn = _Scripted(_ok())
+    source = _planned(fn, _Plan(RuntimeError("db down")))
+    for t in range(0, 600, 5):
+        run_cycle([source], t)
+    assert fn.calls == 0
+
+
+def test_a_failed_pass_backs_off_instead_of_respending_every_tick():
+    """Its checkpoints were never recorded, so the plan still says 'due now'."""
+    fn = _Scripted(_http_error(500), _http_error(500))
+    source = _planned(fn, _Plan(0.0))
+    for t in range(0, 300, 5):
+        run_cycle([source], t)
+    assert fn.calls == 1
+    run_cycle([source], 300)
+    assert fn.calls == 2
+
+
+def test_a_restart_reads_the_plan_rather_than_running(monkeypatch):
+    """The plan is durable (odds_checkpoints), so boot is not a reason to spend."""
+    monkeypatch.setattr(flows, "last_started_at", lambda name, **_: None)
+    fn, plan = _Scripted(_ok()), _Plan(3600.0)
+    source = _planned(fn, plan)
+    source.resume_schedule(1_000.0, wall_now=NOW)
+    run_cycle([source], 1_000.0)
+    assert fn.calls == 0 and source.next_run_at == 4_600.0
+
+
 # --- the dependency itself ---------------------------------------------------
 
 

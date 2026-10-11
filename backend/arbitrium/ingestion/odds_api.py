@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import logging
 import uuid as uuid_mod
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import func, select, update
@@ -31,7 +32,9 @@ from arbitrium.config import settings
 from arbitrium.db.engine import get_session
 from arbitrium.db.models import Event, OddsSnapshot
 from arbitrium.ingestion.events import find_event_by_match
+from arbitrium.ingestion.governor import CallRecord, record_call, reserve_credits
 from arbitrium.ingestion.normalize import NormalizedSnapshot, normalize_odds_api_consensus
+from arbitrium.ingestion.polling import active_sports
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.ingestion.snapshots import insert_snapshots, snapshot_count
 from arbitrium.logging_config import UNHEALTHY_MARKER, redact
@@ -49,8 +52,8 @@ class OddsSport:
     league: str
 
 
-# Odds API sport_key -> our sport/league. Extend as leagues go live.
-# Empty responses are free, so an out-of-season key costs nothing to leave here.
+# Odds API sport_key -> our sport/league. Every key must also appear in
+# polling.SPORT_SEASONS, which decides whether and when it may be called.
 ODDS_SPORTS: dict[str, OddsSport] = {
     "americanfootball_nfl": OddsSport("nfl", "NFL"),
     # Preseason is a SEPARATE key: the regular-season key does not cover August
@@ -58,8 +61,22 @@ ODDS_SPORTS: dict[str, OddsSport] = {
     # consensus to compare against. Also the earliest source of real completed
     # games for outcome resolution.
     "americanfootball_nfl_preseason": OddsSport("nfl", "NFL"),
+    # NBA once billed a credit every pass for events that were all skipped as
+    # unresolved. It is safe to list now because a call needs a Kalshi-backed
+    # game to be due (and Kalshi only stores games whose teams resolve), and
+    # because NBA and NHL stay disabled in ODDS_SPORTS_ENABLED until their team
+    # registries land.
     "basketball_nba": OddsSport("nba", "NBA"),
+    "basketball_nba_preseason": OddsSport("nba", "NBA"),
+    "icehockey_nhl": OddsSport("nhl", "NHL"),
 }
+
+# What each endpoint costs with h2h in one region (verified against the v4
+# docs: /odds is markets x regions, /scores is 2 with daysFrom, /events and
+# /sports are free). Used to check the reserve BEFORE a call; the ledger then
+# records what the response says it actually cost.
+ODDS_CALL_COST = 1
+SCORES_CALL_COST = 2
 
 
 # The scores endpoint's hard ceiling. daysFrom=4 returns HTTP 422 "Invalid
@@ -75,18 +92,29 @@ class QuotaExhausted(RuntimeError):
 class OddsApiClient:
     """Thin httpx wrapper over The Odds API v4 (requires an API key).
 
-    Tracks the remaining monthly quota from response headers and refuses to spend
-    below a reserve. Without that, exhaustion is indistinguishable from a quiet
-    market: calls start failing, nothing is written, and no signal says why.
+    Reads the quota headers from EVERY response, free or paid, and hands each
+    call to ``recorder`` (``credit_log`` by default) so the governor paces the
+    month from a ledger that survives restarts. Independently of the governor,
+    it refuses any call that would dip into the reserve: exhaustion is otherwise
+    indistinguishable from a quiet market.
     """
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 15.0,
+        *,
+        recorder: Callable[[CallRecord], None] | None = record_call,
+    ) -> None:
         self.api_key = api_key or settings.odds_api_key
         self.base_url = (base_url or settings.odds_api_base).rstrip("/")
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        self._recorder = recorder
         # Only known after the first response; None means "not yet observed".
         self.quota_remaining: int | None = None
         self.quota_used: int | None = None
+        self.quota_last: int | None = None
 
     def close(self) -> None:
         self._client.close()
@@ -99,9 +127,11 @@ class OddsApiClient:
 
     def _record_quota(self, resp: httpx.Response) -> None:
         """Read the quota counters the API returns on every response."""
+        self.quota_last = None
         for header, attr in (
             ("x-requests-remaining", "quota_remaining"),
             ("x-requests-used", "quota_used"),
+            ("x-requests-last", "quota_last"),
         ):
             raw = resp.headers.get(header)
             if raw is not None:
@@ -110,28 +140,39 @@ class OddsApiClient:
                 except ValueError:
                     pass
 
-    def _check_quota(self) -> None:
-        """Refuse a paid call when the remaining budget is at the reserve.
+    def _check_quota(self, cost: int = ODDS_CALL_COST) -> None:
+        """Refuse a call that would leave less than the reserve.
 
-        The reserve exists for resolution: odds can be re-fetched later, but a
-        missed scores window loses an outcome forever, so the last credits are
-        kept for the irreversible job rather than the repeatable one.
+        A last line of defence behind the governor, which normally stops well
+        before this: it holds even for a caller that skipped the governor.
         """
-        reserve = settings.odds_api_quota_reserve
-        if self.quota_remaining is not None and self.quota_remaining <= reserve:
+        reserve = reserve_credits()
+        if cost and self.quota_remaining is not None and self.quota_remaining - cost < reserve:
             raise QuotaExhausted(
-                f"{UNHEALTHY_MARKER}: Odds API quota at {self.quota_remaining}, "
-                f"at or below the reserve of {reserve}. Refusing further paid calls "
-                "so the remaining budget stays available for outcome resolution."
+                f"{UNHEALTHY_MARKER}: Odds API quota at {self.quota_remaining}; a "
+                f"{cost}-credit call would dip into the reserve of {reserve}. "
+                "Refusing further paid calls."
             )
 
-    def _get(self, path: str, params: dict) -> list[dict]:
-        """Issue a checked, quota-tracked, redaction-safe GET."""
+    def _get(
+        self,
+        path: str,
+        params: dict,
+        *,
+        endpoint: str,
+        sport_key: str,
+        cost: int,
+        checkpoint: str | None = None,
+    ) -> list[dict]:
+        """Issue a checked, quota-tracked, ledger-recorded, redaction-safe GET."""
         if not self.api_key:
             raise ValueError("ODDS_API_KEY is not set")
-        self._check_quota()
+        self._check_quota(cost)
         resp = self._client.get(path, params={"apiKey": self.api_key, **params})
         self._record_quota(resp)
+        body = resp.json() if resp.is_success else None
+        self._log_call(resp, body, endpoint=endpoint, sport_key=sport_key, cost=cost,
+                       checkpoint=checkpoint)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -141,17 +182,73 @@ class OddsApiClient:
             raise httpx.HTTPStatusError(
                 redact(str(exc)), request=exc.request, response=exc.response
             ) from None
-        return resp.json()
+        return body
 
-    def get_odds(self, sport_key: str, *, regions: str = "us", markets: str = "h2h") -> list[dict]:
+    def _log_call(
+        self, resp: httpx.Response, body: object, *, endpoint: str, sport_key: str,
+        cost: int, checkpoint: str | None,
+    ) -> None:
+        """Hand this response's cost to the recorder.
+
+        ``x-requests-last`` is the truth. If it is missing on a paid call, the
+        expected cost is logged instead: over-counting a credit is safe,
+        under-counting one is how a month runs out early. An empty /odds list
+        is free (verified), so it is never charged an estimate.
+        """
+        if self._recorder is None:
+            return
+        returned = len(body) if isinstance(body, list) else None
+        used = self.quota_last
+        if used is None:
+            used = 0 if (returned == 0 or not resp.is_success) else cost
+            if used:
+                logger.warning(
+                    "Odds API %s %s: no x-requests-last header; logging the expected "
+                    "%d credit(s)", endpoint, sport_key, used,
+                )
+        cfg = ODDS_SPORTS.get(sport_key)
+        self._recorder(
+            CallRecord(
+                endpoint=endpoint,
+                sport_key=sport_key,
+                sport=cfg.sport if cfg else None,
+                checkpoint=checkpoint,
+                credits_used=used,
+                remaining=self.quota_remaining,
+                used=self.quota_used,
+                events_returned=returned,
+            )
+        )
+
+    def get_events(self, sport_key: str) -> list[dict]:
+        """Upcoming games with exact ``commence_time``. FREE.
+
+        "This endpoint does not count against the usage quota" (v4 docs). Its
+        response still carries the quota headers, which is how the governor
+        learns the real balance without spending anything.
+        """
+        return self._get(
+            f"/sports/{sport_key}/events", {}, endpoint="events", sport_key=sport_key, cost=0
+        )
+
+    def get_odds(
+        self,
+        sport_key: str,
+        *,
+        regions: str = "us",
+        markets: str = "h2h",
+        checkpoint: str | None = None,
+    ) -> list[dict]:
         """Return events with bookmaker odds.
 
-        Costs one quota credit — but ONLY if the response contains events;
-        empty responses are free (verified against the live counter).
+        Costs markets x regions credits — 1 for h2h in one region — but ONLY if
+        the response contains events; empty responses are free (verified
+        against the live counter).
         """
         return self._get(
             f"/sports/{sport_key}/odds",
             {"regions": regions, "markets": markets, "oddsFormat": "american"},
+            endpoint="odds", sport_key=sport_key, cost=ODDS_CALL_COST, checkpoint=checkpoint,
         )
 
     def get_scores(self, sport_key: str, *, days_from: int | None = None) -> list[dict]:
@@ -167,7 +264,10 @@ class OddsApiClient:
                 f"days_from must be between 1 and {MAX_SCORES_DAYS_FROM} "
                 f"(the API's ceiling); got {days}"
             )
-        return self._get(f"/sports/{sport_key}/scores/", {"daysFrom": days})
+        return self._get(
+            f"/sports/{sport_key}/scores/", {"daysFrom": days},
+            endpoint="scores", sport_key=sport_key, cost=SCORES_CALL_COST,
+        )
 
 
 def _parse_commence_time(value: str | None) -> datetime | None:
@@ -365,7 +465,11 @@ def ingest_odds_event(session: Session, event: dict, sport_cfg: OddsSport) -> in
     if extract is None:
         return 0
 
-    event_id, status = find_event_by_match(session, extract.key)
+    # A row already keyed to a DIFFERENT Odds API id is provably another game —
+    # typically the other half of an NBA repeat matchup a day or two away.
+    event_id, status = find_event_by_match(
+        session, extract.key, claimed=("odds_api", extract.odds_api_event_id)
+    )
     if status is MatchStatus.AMBIGUOUS:
         logger.warning(
             "Odds event %s: ambiguous match (possible doubleheader); skipping",
@@ -381,18 +485,28 @@ def ingest_odds_event(session: Session, event: dict, sport_cfg: OddsSport) -> in
     return _insert_consensus_snapshots(session, event_id, extract)
 
 
-def run_ingest(sport_keys: list[str] | None = None) -> IngestResult:
-    """Fetch each configured Odds API sport and append consensus snapshots.
+def in_season_keys(day: datetime | None = None) -> list[str]:
+    """Odds API keys of every enabled sport that are in season on ``day``."""
+    moment = (day or datetime.now(timezone.utc)).date()
+    return sorted(k for p in active_sports(moment) for k in p.keys_in_season(moment))
+
+
+def run_ingest(
+    sport_keys: list[str] | None = None, *, checkpoint: str | None = None
+) -> IngestResult:
+    """Fetch the given Odds API sport keys and append consensus snapshots.
 
     Returns an :class:`IngestResult` reporting rows WRITTEN, so the scheduler's
     health tracker can distinguish a quiet market from a broken pass. Per-event
     problems are skipped and logged inside :func:`ingest_odds_event`; only
     transient network/API errors propagate, so the scheduler's with_retries covers them.
 
-    Each sport costs one API quota unit per pass — hence the deliberately slower
-    ``odds_poll_interval_seconds``.
+    Each key costs one credit. The scheduler never calls this bare: it passes
+    exactly the keys a planned, governor-admitted pass needs (see
+    ingestion.odds_schedule). Bare, it defaults to the in-season keys of enabled
+    sports, never to everything in ODDS_SPORTS.
     """
-    keys = sport_keys if sport_keys is not None else list(ODDS_SPORTS)
+    keys = sport_keys if sport_keys is not None else in_season_keys()
     undeclared = [k for k in keys if k not in ODDS_SPORTS]
     if undeclared:
         raise ValueError(
@@ -410,7 +524,7 @@ def run_ingest(sport_keys: list[str] | None = None) -> IngestResult:
             before = snapshot_count(session)
             for sport_key in keys:
                 cfg = ODDS_SPORTS[sport_key]
-                events = client.get_odds(sport_key)
+                events = client.get_odds(sport_key, checkpoint=checkpoint)
                 if not events:
                     logger.info(
                         "Odds API sport %s returned 0 events (off-season); nothing to ingest.",

@@ -206,3 +206,39 @@ def test_no_warning_on_a_first_observation(db_session, caplog):
     with caplog.at_level(logging.WARNING):
         _warn_if_book_count_would_be_lost(db_session, ev.id, "home", 0.7000, 9)
     assert BOOK_COUNT_STALE_MARKER not in caplog.text
+
+
+# --- repeat matchups: an id another game already owns is never borrowed ------
+
+
+def test_an_event_keyed_to_another_odds_id_is_not_merged_into(db_session):
+    """Two meetings of the same teams inside the match window.
+
+    The first already carries Odds API id A. Odds event B starts nearer to it
+    than to the second, Kalshi-only meeting, so a team-pair match alone would
+    pick the first and clobber its id. ``claimed`` rules that row out: one game
+    has exactly one Odds API id.
+    """
+    first_start = datetime(2099, 11, 1, 18, tzinfo=UTC)
+    first = Event(sport="nfl", league="NFL", home_team="Kansas City Chiefs",
+                  away_team="Denver Broncos", scheduled_start=first_start,
+                  status="scheduled", odds_api_event_id="odds-A",
+                  home_away_source="odds_api")
+    second = Event(sport="nfl", league="NFL", home_team="Kansas City Chiefs",
+                   away_team="Denver Broncos", scheduled_start=first_start + timedelta(days=2),
+                   status="scheduled", kalshi_event_ticker="KXNFLGAME-99NOV03DENKC",
+                   home_away_source="kalshi_provisional")
+    db_session.add_all([first, second])
+    db_session.flush()
+
+    commence = (first_start + timedelta(hours=20)).isoformat().replace("+00:00", "Z")
+    rows = ingest_odds_event(
+        db_session, _odds_event("odds-B", "Kansas City Chiefs", "Denver Broncos", commence), NFL
+    )
+    db_session.flush()
+    db_session.refresh(first)
+    db_session.refresh(second)
+
+    assert rows > 0
+    assert first.odds_api_event_id == "odds-A"
+    assert second.odds_api_event_id == "odds-B"

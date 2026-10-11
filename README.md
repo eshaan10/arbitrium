@@ -31,11 +31,13 @@ test or was verified against the live database.
 
 ## What it does
 
-**Ingestion.** Two pollers on independent schedules. Kalshi runs flat at 5
-minutes (a live order book moves constantly). The Odds API is adaptive —
-hourly inside 24h of kickoff, four times a day inside a week, daily beyond that
-— because the plan allows ~500 credits/month and a flat 15-minute interval
-burns the entire budget in five days.
+**Ingestion.** Kalshi runs flat at 5 minutes (a live order book moves
+constantly, and reads are free). The Odds API runs on a game clock instead of
+an interval: each Kalshi-listed game is priced at T-24h, T-6h, T-1h and the
+close (T-10m), with one call covering every game in a sport. A credit governor
+paces the 500-credit month from response headers, keeps a 10% reserve, and
+drops low-value checkpoints before it ever drops a close. A flat 15-minute
+interval once burned the entire budget in five days.
 
 **Storage.** `odds_snapshots` is append-only. A Postgres trigger suppresses a
 write when the price for `(event_id, source, outcome)` is unchanged, so the
@@ -145,18 +147,19 @@ a test that fails if anyone reverts it.
 ```
 Kalshi API ─┐                          ┌─ /divergences   scored events + reasons
             ├─ pollers ─→ Postgres ─→ ─┼─ /events/{id}         one event, any state
-Odds API ───┘  (adaptive) (append-only)├─ /events/{id}/history
-ESPN (resolution fallback)             ├─ /events/lookup  resolved games by id
+Odds API ───┘ (game clock)(append-only)├─ /events/{id}/history
+ESPN (resolution, primary)             ├─ /events/lookup  resolved games by id
                                        ├─ /activity       recent real price moves
                                        ├─ /performance    gated self-grading
+                                       ├─ /usage          Odds API credit ledger
                                        └─ /health         per-source freshness
                                                 │
                                           Next.js (SSR + polling)
 ```
 
 **Backend** — Python 3.11, FastAPI, SQLAlchemy 2, Postgres 16, Alembic, httpx.
-The scheduler is a single long-running process running four jobs on independent
-intervals (Kalshi, Odds API, calibration, resolution).
+The scheduler is a single long-running process running four jobs: Kalshi,
+calibration and resolution on intervals, the Odds API on the game-clock plan.
 
 **Frontend** — Next.js 16 (App Router), React 19, TypeScript, Tailwind v4,
 TanStack Query, Recharts. The browser never calls FastAPI directly: server

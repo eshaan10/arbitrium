@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { fetchHealth, queryKeys } from "@/lib/api";
-import type { HealthResponse } from "@/lib/types";
+import type { HealthResponse, SourceFreshness } from "@/lib/types";
 
 const LABELS: Record<string, string> = { kalshi: "Kalshi", consensus: "Odds API" };
 
@@ -35,6 +35,14 @@ function summarise(data: HealthResponse | undefined) {
   if (stale === 0) return { tone: "ok" as const, label: "Live" };
   if (stale < sources.length) return { tone: "warn" as const, label: "Partial" };
   return { tone: "warn" as const, label: "Stale" };
+}
+
+function cadence(f: SourceFreshness): string {
+  if (f.poll_interval_seconds != null) {
+    return `polls every ${Math.round(f.poll_interval_seconds / 60)}m`;
+  }
+  const missed = f.missed_closes ?? 0;
+  return `game-clock schedule, ${missed} missed close${missed === 1 ? "" : "s"}`;
 }
 
 export function StatusCluster() {
@@ -72,7 +80,7 @@ export function StatusCluster() {
           ([key, f]) =>
             `${LABELS[key] ?? key}: ${f.stale ? "stale" : "fresh"}, last write ${age(
               f.age_seconds,
-            )}, polls every ${Math.round(f.poll_interval_seconds / 60)}m`,
+            )}, ${cadence(f)}`,
         )
         .join("\n")
     : "Checking ingest freshness…";

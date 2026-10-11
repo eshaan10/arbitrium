@@ -242,9 +242,12 @@ export interface SourceFreshness {
   last_write_at: string | null;
   age_seconds: number | null;
   stale: boolean;
-  stale_after_seconds: number;
-  /** The interval actually in force — adaptive for the Odds API. */
-  poll_interval_seconds: number;
+  /** Interval sources (Kalshi) only. */
+  stale_after_seconds?: number;
+  poll_interval_seconds?: number;
+  /** Consensus runs on the game clock: judged by missed closes, not by age. */
+  schedule?: "game_clock";
+  missed_closes?: number;
 }
 
 export interface HealthResponse {

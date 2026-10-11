@@ -1,7 +1,9 @@
 """Scheduled ingestion: one plain polling loop, no orchestration framework.
 
-Two sources on independent intervals: Kalshi (fast — a live order book) and The
-Odds API (slower, and every call costs quota). Poll ORDER is irrelevant: both
+Kalshi runs on a flat interval (fast, free — a live order book). The Odds API
+does not run on an interval at all: it runs when the game-clock plan has a pass
+due (see ingestion.polling and ingestion.governor), because every call costs
+credits from a 500-a-month budget. Poll ORDER is irrelevant: both
 ingestion paths run the shared matcher before inserting, so whichever source
 reaches a game first creates the ``events`` row and the other merges into it.
 
@@ -39,10 +41,8 @@ import httpx
 
 from arbitrium.calibration import grading
 from arbitrium.config import settings
-from arbitrium.db.engine import get_session
-from arbitrium.ingestion import kalshi, odds_api, resolution
+from arbitrium.ingestion import kalshi, odds_schedule, resolution
 from arbitrium.ingestion.odds_api import QuotaExhausted
-from arbitrium.ingestion.polling import odds_poll_interval
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.ingestion.runs import (
     fail_run,
@@ -62,15 +62,6 @@ T = TypeVar("T")
 # Returned by last_started_at when ingest_runs cannot be read, as distinct from
 # None ("this source has never run").
 _HISTORY_UNAVAILABLE = object()
-
-
-def _odds_interval() -> int:
-    """Current adaptive Odds API interval, read from the schedule we already hold."""
-    session = get_session()
-    try:
-        return odds_poll_interval(session)
-    finally:
-        session.close()
 
 
 def with_retries(
@@ -109,7 +100,11 @@ def kalshi_pass() -> IngestResult:
 
 
 def odds_pass() -> IngestResult:
-    return with_retries(odds_api.run_ingest, retries=3, delay=30, name="odds_api")
+    # One retry, not three. The pass re-plans on every attempt, so a checkpoint
+    # recorded before the failure is never re-bought — but a failure AFTER a
+    # paid response and BEFORE its checkpoint row is written would be, and every
+    # retry is a credit.
+    return with_retries(odds_schedule.run_due_passes, retries=1, delay=30, name="odds_api")
 
 
 def calibration_pass() -> IngestResult:
@@ -187,8 +182,8 @@ class _Source:
         try:
             return self._interval() if callable(self._interval) else self._interval
         except Exception:  # noqa: BLE001 - pacing must never kill the loop
-            logger.warning("%s: interval lookup failed; using the far tier", self.name)
-            return settings.odds_poll_far_seconds
+            logger.warning("%s: interval lookup failed; using the replan interval", self.name)
+            return settings.odds_replan_seconds
 
     def resume_schedule(self, now: float, *, wall_now: datetime | None = None) -> None:
         """Pick up the schedule where the last process left it.
@@ -244,6 +239,60 @@ class _Source:
             self.next_run_at = now + self.interval
 
 
+class _PlannedSource(_Source):
+    """A paid source that runs only when the game-clock plan has a pass due.
+
+    Between passes it re-reads the plan every ``replan`` seconds — the database
+    plus the free /events listing — so a newly listed game or an opening Kalshi
+    gate is noticed without a paid call, and without an ingest_runs row per
+    check. A restart cannot re-spend: the plan is rebuilt from odds_checkpoints,
+    which records every checkpoint already captured or skipped.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        pass_fn: Callable[[], IngestResult],
+        plan_fn: Callable[[], float | None],
+        *,
+        replan: int,
+        health: IngestHealth | None = None,
+    ) -> None:
+        super().__init__(name, pass_fn, replan, health=health, paid=True)
+        self._plan_fn = plan_fn
+        self._replan_at = 0.0
+        self.next_run_at = float("inf")
+
+    def _replan(self, now: float) -> None:
+        self._replan_at = now + self.interval
+        try:
+            wait = self._plan_fn()
+        except Exception as exc:  # noqa: BLE001 - planning must never kill the loop
+            # Paid: when the plan cannot be read, do not run blind.
+            logger.warning("%s: planning failed (%s: %s); retrying in %ds",
+                           self.name, type(exc).__name__, exc, self.interval)
+            wait = None
+        self.next_run_at = float("inf") if wait is None else now + wait
+
+    def resume_schedule(self, now: float, *, wall_now: datetime | None = None) -> None:
+        self._replan_at = now  # the durable plan IS the schedule; read it on the first tick
+
+    def due(self, now: float) -> bool:
+        if now >= self._replan_at:
+            self._replan(now)
+        return now >= self.next_run_at
+
+    def run(self, now: float) -> None:
+        failures = self.health.consecutive_failures
+        super().run(now)
+        self._replan(now)
+        if self.health.consecutive_failures > failures:
+            # A failed pass leaves its checkpoints unrecorded, so the plan still
+            # says "due now". Without this it would re-run — and re-spend — on
+            # the next five-second tick.
+            self.next_run_at = max(self.next_run_at, now + self.interval)
+
+
 def run_cycle(sources: list[_Source], now: float) -> None:
     """Run every due source once; exit the process if one cannot recover alone.
 
@@ -269,10 +318,20 @@ def run_cycle(sources: list[_Source], now: float) -> None:
 def build_sources() -> list[_Source]:
     return [
         _Source("kalshi", kalshi_pass, settings.kalshi_poll_interval_seconds),
-        # Adaptive: hourly near kickoff, daily when the next game is weeks out.
-        # A flat 15-minute interval burned the entire monthly credit budget in
-        # five days; this spends it where prices actually move.
-        _Source("odds_api", odds_pass, _odds_interval, paid=True),
+        # Game-clock: T-24h, T-6h, T-1h and the close, only for Kalshi-backed
+        # games, coalesced across a sport and rationed by the credit governor.
+        # A flat 15-minute interval once burned the monthly budget in five days.
+        _PlannedSource(
+            "odds_api",
+            odds_pass,
+            odds_schedule.seconds_until_next_pass,
+            replan=settings.odds_replan_seconds,
+            health=IngestHealth(
+                "odds_api",
+                zero_write_warn_seconds=settings.odds_zero_write_warn_seconds,
+                zero_write_error_seconds=settings.odds_zero_write_error_seconds,
+            ),
+        ),
         _Source(
             "calibration",
             calibration_pass,
@@ -290,8 +349,8 @@ def build_sources() -> list[_Source]:
             "resolution",
             resolution_pass,
             settings.resolution_poll_interval_seconds,
-            # Each scores call costs 2 credits. Waiting one 6h interval is safe:
-            # a game gets ~14 resolution chances inside its window.
+            # ESPN-primary and free, but its fallback is a 2-credit scores call.
+            # Waiting one 6h interval is safe: ~14 chances inside the window.
             paid=True,
             # Resolution legitimately writes nothing for months in the off-season,
             # so the generic zero-write alarm is the WRONG signal — it would
@@ -323,7 +382,9 @@ def run_forever() -> None:
     logger.info(
         "Starting ingest loop: %s (exits after %d consecutive no-response failures)",
         ", ".join(
-            f"{s.name} every {s.interval}s, first in {max(0, round(s.next_run_at - start))}s"
+            f"{s.name} on the game-clock plan (replans every {s.interval}s)"
+            if isinstance(s, _PlannedSource)
+            else f"{s.name} every {s.interval}s, first in {max(0, round(s.next_run_at - start))}s"
             for s in sources
         ),
         settings.scheduler_exit_after_consecutive_failures,

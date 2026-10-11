@@ -1,125 +1,157 @@
-"""Adaptive poll pacing and the quota guard.
+"""The Odds API client's side of the budget: headers, the ledger, and the floor.
 
-The Phase 2 poller burned a 500-credit monthly budget in five days. These pin the
-pacing that fixes it, and the guard that makes exhaustion loud instead of looking
-exactly like a quiet market.
+The Phase 2 poller burned a 500-credit monthly budget in five days. The pacing
+that replaced it lives in the plan and the governor (test_schedule.py,
+test_governor.py); these pin what the client itself guarantees — every
+response is read and logged, and no call ever dips into the reserve, whoever
+makes it.
 """
 
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timedelta, timezone
-
 import httpx
 import pytest
 
-from arbitrium.config import settings
+from arbitrium.ingestion import governor
 from arbitrium.ingestion.odds_api import OddsApiClient, QuotaExhausted
-from arbitrium.ingestion.polling import poll_interval_for, projected_daily_credits
 from arbitrium.logging_config import UNHEALTHY_MARKER
 
-UTC = timezone.utc
-NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
+RESERVE = governor.reserve_credits()
 
 
-def _in(**kw):
-    return NOW + timedelta(**kw)
-
-
-# --- tiers -------------------------------------------------------------------
-
-
-def test_near_kickoff_polls_hourly():
-    assert poll_interval_for(_in(hours=3), now=NOW) == settings.odds_poll_near_seconds
-
-
-def test_mid_range_polls_less_often():
-    assert poll_interval_for(_in(days=3), now=NOW) == settings.odds_poll_mid_seconds
-
-
-def test_far_out_polls_daily():
-    assert poll_interval_for(_in(days=30), now=NOW) == settings.odds_poll_far_seconds
-
-
-def test_no_scheduled_games_falls_to_the_far_tier():
-    """The off-season case. Costs nothing anyway — empty responses are free."""
-    assert poll_interval_for(None, now=NOW) == settings.odds_poll_far_seconds
-
-
-def test_a_game_in_progress_counts_as_near():
-    """Its line is still closing and its result is about to exist."""
-    assert poll_interval_for(_in(hours=-1), now=NOW) == settings.odds_poll_near_seconds
-
-
-def test_tier_boundaries_are_inclusive():
-    assert poll_interval_for(_in(hours=24), now=NOW) == settings.odds_poll_near_seconds
-    assert poll_interval_for(
-        _in(hours=24, seconds=1), now=NOW
-    ) == settings.odds_poll_mid_seconds
-    assert poll_interval_for(_in(days=7), now=NOW) == settings.odds_poll_mid_seconds
-    assert poll_interval_for(
-        _in(days=7, seconds=1), now=NOW
-    ) == settings.odds_poll_far_seconds
-
-
-# --- the budget actually fits ------------------------------------------------
-
-
-def test_adaptive_pacing_fits_the_monthly_budget():
-    """The whole point: the old flat interval did not.
-
-    Worst realistic case is one in-season sport sitting in the near tier all day.
-    """
-    old_flat = projected_daily_credits(900, paid_sports=1)
-    assert old_flat > 90  # ~96/day — the bug
-
-    budget_per_day = settings.odds_api_monthly_credit_budget / 30
-    assert projected_daily_credits(settings.odds_poll_near_seconds) <= 24
-    assert projected_daily_credits(settings.odds_poll_mid_seconds) < budget_per_day
-    assert projected_daily_credits(settings.odds_poll_far_seconds) < budget_per_day
-
-
-# --- quota guard -------------------------------------------------------------
-
-
-def _client_with_quota(remaining: int) -> OddsApiClient:
-    c = OddsApiClient(api_key="dummy")
+def _client(handler=None, *, remaining=None):
+    """A client whose ledger is a list and whose network is ``handler``."""
+    calls: list[governor.CallRecord] = []
+    c = OddsApiClient(api_key="dummy", recorder=calls.append)
+    if handler is not None:
+        c._client = httpx.Client(base_url=c.base_url, transport=httpx.MockTransport(handler))
     c.quota_remaining = remaining
-    return c
+    return c, calls
 
 
-def test_guard_blocks_at_the_reserve(caplog):
-    c = _client_with_quota(settings.odds_api_quota_reserve)
-    with caplog.at_level(logging.ERROR), pytest.raises(QuotaExhausted) as exc:
+def _respond(body, *, status=200, **headers):
+    hdrs = {f"x-requests-{k}": str(v) for k, v in headers.items()}
+    return lambda request: httpx.Response(status, json=body, headers=hdrs)
+
+
+# --- the floor ----------------------------------------------------------------
+
+
+def test_guard_blocks_a_call_that_would_dip_into_the_reserve():
+    c, _ = _client(remaining=RESERVE)
+    with pytest.raises(QuotaExhausted) as exc:
         c.get_odds("americanfootball_nfl")
     assert UNHEALTHY_MARKER in str(exc.value)
     c.close()
 
 
-def test_guard_allows_above_the_reserve():
-    """Above the reserve it must attempt the call (network error, not QuotaExhausted)."""
-    c = _client_with_quota(settings.odds_api_quota_reserve + 1)
-    c.base_url = "http://127.0.0.1:1"  # nothing listening
-    c._client = httpx.Client(base_url=c.base_url, timeout=0.2)
-    with pytest.raises(Exception) as exc:
-        c.get_odds("americanfootball_nfl")
-    assert not isinstance(exc.value, QuotaExhausted)
+def test_guard_allows_spending_down_to_exactly_the_reserve():
+    c, _ = _client(_respond([{"id": "e1"}], remaining=RESERVE, last=1), remaining=RESERVE + 1)
+    assert c.get_odds("americanfootball_nfl") == [{"id": "e1"}]
+    c.close()
+
+
+def test_guard_charges_a_scores_call_its_two_credits():
+    c, _ = _client(remaining=RESERVE + 1)
+    with pytest.raises(QuotaExhausted):
+        c.get_scores("americanfootball_nfl")
+    c.close()
+
+
+def test_a_free_call_is_never_blocked():
+    """/events is how the balance is learned, so it must work even at the floor."""
+    c, calls = _client(_respond([], remaining=RESERVE, last=0), remaining=0)
+    assert c.get_events("americanfootball_nfl") == []
+    assert calls[0].endpoint == "events" and calls[0].credits_used == 0
     c.close()
 
 
 def test_unknown_quota_does_not_block():
     """Before the first response the remaining budget is unknown, not zero."""
-    c = OddsApiClient(api_key="dummy")
+    c, _ = _client()
     assert c.quota_remaining is None
     c._check_quota()  # must not raise
     c.close()
 
 
+def test_a_call_with_no_response_is_not_blocked_by_the_floor():
+    """Above the reserve it must attempt the call (network error, not QuotaExhausted)."""
+    def refuse(request):
+        raise httpx.ConnectError("refused")
+
+    c, calls = _client(refuse, remaining=RESERVE + 1)
+    with pytest.raises(httpx.ConnectError):
+        c.get_odds("americanfootball_nfl")
+    assert calls == []  # no response, nothing spent, nothing logged
+    c.close()
+
+
+# --- headers and the ledger ---------------------------------------------------------
+
+
 def test_quota_is_recorded_from_response_headers():
-    c = OddsApiClient(api_key="dummy")
-    resp = httpx.Response(
-        200, headers={"x-requests-remaining": "461", "x-requests-used": "39"}
+    c, _ = _client()
+    c._record_quota(httpx.Response(
+        200, headers={"x-requests-remaining": "461", "x-requests-used": "39",
+                      "x-requests-last": "1"},
+    ))
+    assert (c.quota_remaining, c.quota_used, c.quota_last) == (461, 39, 1)
+    c.close()
+
+
+def test_every_paid_call_is_logged_with_its_header_cost():
+    c, calls = _client(_respond([{"id": "a"}, {"id": "b"}], remaining=410, used=90, last=1))
+    c.get_odds("americanfootball_nfl", checkpoint="close")
+    (rec,) = calls
+    assert rec == governor.CallRecord(
+        endpoint="odds", sport_key="americanfootball_nfl", sport="nfl", checkpoint="close",
+        credits_used=1, remaining=410, used=90, events_returned=2,
     )
-    c._record_quota(resp)
-    assert (c.quota_remaining, c.quota_used) == (461, 39)
+    c.close()
+
+
+def test_a_scores_call_logs_what_the_header_says_it_cost():
+    c, calls = _client(_respond([], remaining=400, used=100, last=2))
+    c.get_scores("basketball_nba")
+    assert (calls[0].endpoint, calls[0].sport, calls[0].credits_used) == ("scores", "nba", 2)
+    c.close()
+
+
+def test_a_missing_cost_header_logs_the_expected_cost(caplog):
+    """Over-counting a credit is safe; under-counting is how a month runs out."""
+    c, calls = _client(_respond([{"id": "a"}], remaining=400))
+    c.get_odds("americanfootball_nfl")
+    assert calls[0].credits_used == 1
+    assert "no x-requests-last" in caplog.text
+    c.close()
+
+
+def test_an_empty_odds_response_is_free_even_without_the_header():
+    c, calls = _client(_respond([], remaining=400))
+    c.get_odds("americanfootball_nfl")
+    assert calls[0].credits_used == 0 and calls[0].events_returned == 0
+    c.close()
+
+
+def test_a_stale_cost_header_is_not_carried_into_the_next_call():
+    responses = iter([_respond([{"id": "a"}], last=1), _respond([])])
+    c, calls = _client(lambda request: next(responses)(request))
+    c.get_odds("americanfootball_nfl")
+    c.get_odds("americanfootball_nfl")
+    assert [r.credits_used for r in calls] == [1, 0]
+    c.close()
+
+
+def test_an_error_response_is_logged_and_still_raised_redacted():
+    c, calls = _client(_respond({"message": "bad"}, status=401, remaining=400, last=0))
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        c.get_odds("americanfootball_nfl")
+    assert "dummy" not in str(exc.value)
+    assert calls[0].credits_used == 0 and calls[0].events_returned is None
+    c.close()
+
+
+def test_default_recorder_is_the_credit_log():
+    c = OddsApiClient(api_key="dummy")
+    assert c._recorder is governor.record_call
     c.close()

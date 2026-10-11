@@ -178,3 +178,48 @@ class IngestRun(Base):
     # logged one, because rows do not rotate.
     error_message: Mapped[str | None] = mapped_column(String)
     detail: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+
+
+class CreditLog(Base):
+    """One Odds API response and what it cost. Append-only (migration 0010).
+
+    The governor's source of truth for the balance: it survives restarts, which
+    an in-memory counter on the client did not.
+    """
+
+    __tablename__ = "credit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    called_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+    sport: Mapped[str | None] = mapped_column(String)  # canonical, e.g. 'nfl'
+    sport_key: Mapped[str] = mapped_column(String, nullable=False)  # Odds API key
+    endpoint: Mapped[str] = mapped_column(String, nullable=False)  # odds|scores|events
+    checkpoint: Mapped[str | None] = mapped_column(String)  # highest one served
+    credits_used: Mapped[int] = mapped_column(Integer, nullable=False)  # x-requests-last
+    remaining: Mapped[int | None] = mapped_column(Integer)  # x-requests-remaining
+    used: Mapped[int | None] = mapped_column(Integer)  # x-requests-used
+    events_returned: Mapped[int | None] = mapped_column(Integer)
+
+
+class OddsCheckpoint(Base):
+    """A game-clock checkpoint taken (or deliberately skipped) for one event.
+
+    Append-only (migration 0010). The 'close' row marks the closing-line pass;
+    the price itself is the consensus snapshot at or before ``captured_at``.
+    """
+
+    __tablename__ = "odds_checkpoints"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    sport: Mapped[str] = mapped_column(String, nullable=False)
+    checkpoint: Mapped[str] = mapped_column(String, nullable=False)  # t24h|t6h|t1h|close
+    status: Mapped[str] = mapped_column(String, nullable=False)  # captured|skipped_budget
+    reason: Mapped[str | None] = mapped_column(String)
+    captured_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("NOW()")
+    )

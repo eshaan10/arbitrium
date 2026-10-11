@@ -25,7 +25,8 @@ from arbitrium.config import settings
 from arbitrium.db.engine import SessionLocal, engine
 from arbitrium.db.models import CalibrationHistory, Event, OddsSnapshot
 from arbitrium.divergence.engine import DivergenceStatus, compute_divergences
-from arbitrium.ingestion.polling import odds_poll_interval
+from arbitrium.ingestion.governor import usage_report
+from arbitrium.ingestion.polling import missed_closes
 from arbitrium.ingestion.resolution import PendingSummary, pending_resolution
 from arbitrium.logging_config import configure_logging
 from arbitrium.reference.teams import TEAMS_BY_LEAGUE
@@ -47,15 +48,11 @@ def get_db() -> Session:
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-# Fallback poll intervals, used when the caller does not supply live ones.
-#
-# Kalshi genuinely runs on a flat interval. Consensus DOES NOT: the Odds API
-# poller is adaptive (see ingestion.polling), so the flat setting here is only a
-# floor for callers without a session — anything judging a real gap must pass
-# the interval actually in force. See staleness_report.
+# Poll intervals for the sources that HAVE one. Consensus does not: the Odds API
+# runs on a game-clock plan, hours or days apart by design, so a gap between
+# writes means nothing and it is judged by consensus_report instead.
 _SOURCE_INTERVALS = {
     "kalshi": lambda: settings.kalshi_poll_interval_seconds,
-    "consensus": lambda: settings.odds_poll_interval_seconds,
 }
 
 
@@ -71,12 +68,8 @@ def staleness_report(
     alarming, what a never-written source reports — is testable without depending
     on whatever the live poller happens to have written to the shared table.
 
-    ``intervals`` supplies the poll interval CURRENTLY in force per source. It
-    matters because the Odds API schedule is adaptive: it drops to four times a
-    day inside a week of kickoff and to daily beyond that, so judging it against
-    the flat 15-minute setting reports a healthy poller as stale for most of the
-    week — the monitor cries wolf and the one signal meant to catch a real
-    outage stops meaning anything.
+    ``intervals`` overrides the poll interval per source, for a caller that
+    knows the one actually in force.
     """
     moment = now or datetime.now(timezone.utc)
     out: dict[str, dict] = {}
@@ -98,6 +91,27 @@ def staleness_report(
     return out
 
 
+def consensus_report(
+    last_write: datetime | None, missed: int, *, now: datetime | None = None
+) -> dict:
+    """Consensus freshness, judged by the schedule rather than by the gap. Pure.
+
+    Odds passes are hours apart by design and a quiet day legitimately has
+    none, so "how old is the newest row" would cry wolf all week — the exact
+    miscalibration this endpoint once had under the adaptive interval. The
+    question that does mean something: did a Kalshi-backed game start without
+    its closing checkpoint being either captured or deliberately skipped?
+    """
+    moment = now or datetime.now(timezone.utc)
+    return {
+        "last_write_at": last_write.isoformat() if last_write else None,
+        "age_seconds": None if last_write is None else int((moment - last_write).total_seconds()),
+        "schedule": "game_clock",
+        "missed_closes": missed,
+        "stale": missed > 0,
+    }
+
+
 def _ingestion_freshness(db: Session) -> dict[str, dict]:
     """Per-source write recency, derived from the append-only table itself.
 
@@ -114,13 +128,10 @@ def _ingestion_freshness(db: Session) -> dict[str, dict]:
             OddsSnapshot.source
         )
     ).all()
-    # The Odds API interval is adaptive, so read the one actually in force
-    # rather than the flat setting — otherwise a poller running correctly on the
-    # mid tier (4x/day) is reported stale against a 90-minute window.
-    return staleness_report(
-        {source: ts for source, ts in rows},
-        intervals={"consensus": odds_poll_interval(db)},
-    )
+    latest = {source: ts for source, ts in rows}
+    out = staleness_report(latest)
+    out["consensus"] = consensus_report(latest.get("consensus"), missed_closes(db))
+    return out
 
 
 def resolution_report(summary: PendingSummary, *, now: datetime | None = None) -> dict:
@@ -847,6 +858,16 @@ def performance(
             "with a warning, and stays provisional for a full first season."
         ),
     }
+
+
+@app.get("/usage")
+def usage(db: Session = Depends(get_db)) -> dict:
+    """Odds API credit usage this quota period, from credit_log.
+
+    Read-only, like every endpoint here: the Odds API is only ever called by
+    the scheduler, never on behalf of a request.
+    """
+    return usage_report(db)
 
 
 @app.get("/preview", include_in_schema=False)

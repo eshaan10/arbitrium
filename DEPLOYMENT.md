@@ -14,7 +14,7 @@ and have **not** been run.
 The deciding factor is the scheduler, not the API.
 
 This app has a long-running poller that must never stop: it holds per-source
-interval state in memory, adapts the Odds API cadence to the next kickoff, and
+interval state in memory, prices each game at fixed points on its game clock, and
 accumulates append-only history that **cannot be backfilled** — the scores feed
 only reaches back three days, so a gap is permanent. A deployed API with a dead
 scheduler is the original week-long outage wearing a different hat.
@@ -26,10 +26,10 @@ scaled to zero. Railway would work, but needs two separately-configured
 services from the same repo and its idle-sleep behaviour is the wrong default
 for a process whose entire job is to not stop.
 
-**The scheduler is a process group, not a cron job**, deliberately. Cron would
-reset the adaptive interval state on every invocation and spend Odds API credits
-at the wrong rate — the pacing that keeps the ~500 credits/month budget alive
-depends on the process staying up.
+**The scheduler is a process group, not a cron job**, deliberately. A T-10m
+closing checkpoint needs a process awake at T-10m; cron at any sane interval
+would miss most of them. The credit ledger and the checkpoint record are in the
+database, so a restart re-plans rather than re-spends.
 
 ---
 
@@ -76,8 +76,10 @@ Verify both groups are up — this matters more than the API responding:
 
 ```bash
 fly status                      # expect one api machine AND one scheduler machine
-fly logs --app arbitrium-api    # scheduler should log its resolved intervals
+fly logs --app arbitrium-api    # scheduler logs "odds_api on the game-clock plan"
 curl https://arbitrium-api.fly.dev/health
+curl https://arbitrium-api.fly.dev/usage   # credit ledger; remaining_source should
+                                           # read "credit_log" after the first replan
 ```
 
 ---
@@ -136,6 +138,8 @@ remedy for the wrong problem.
 | Fly | `KALSHI_API_KEY_ID` | secret |
 | Fly | `KALSHI_PRIVATE_KEY` | secret, PEM contents |
 | Fly | `ODDS_API_KEY` | secret |
+| Fly | `ODDS_CREDITS_REMAINING_SEED` | balance to assume while `credit_log` is empty (first deploy); replaced by the first response's header |
+| Fly | `ODDS_SPORTS_ENABLED` | CSV, default `nfl`; add `nba`/`nhl` once their registries land |
 | Vercel | `BACKEND_URL` | `https://arbitrium-api.fly.dev`, server-side only |
 
 Nothing above belongs in git. `.env` is gitignored; `.env.example` carries the

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from arbitrium.api.main import _ingestion_freshness, staleness_report
+from arbitrium.api.main import _ingestion_freshness, consensus_report, staleness_report
 from arbitrium.config import settings
-from arbitrium.db.models import Event, OddsSnapshot
+from arbitrium.db.models import Event, OddsCheckpoint, OddsSnapshot
+from arbitrium.ingestion.polling import missed_closes
 
 UTC = timezone.utc
 NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
@@ -49,18 +50,14 @@ def test_threshold_is_a_boundary_not_a_range():
 
 def test_source_that_never_wrote_is_stale_not_absent():
     out = staleness_report({}, now=NOW)
-    assert out["consensus"]["last_write_at"] is None
-    assert out["consensus"]["age_seconds"] is None
-    assert out["consensus"]["stale"] is True
+    assert out["kalshi"]["last_write_at"] is None
+    assert out["kalshi"]["age_seconds"] is None
+    assert out["kalshi"]["stale"] is True
 
 
-def test_each_source_uses_its_own_interval():
-    """The Odds API polls less often, so the same gap must not flag both."""
-    out = staleness_report({}, now=NOW)
-    assert set(out) == {"kalshi", "consensus"}
-    assert (
-        out["consensus"]["stale_after_seconds"] > out["kalshi"]["stale_after_seconds"]
-    ), "a slower poll interval must tolerate a longer gap"
+def test_only_interval_sources_are_judged_by_age():
+    """Consensus runs on the game clock, so it has no interval to be late against."""
+    assert set(staleness_report({}, now=NOW)) == {"kalshi"}
 
 
 def test_the_outage_pattern_is_visible():
@@ -96,73 +93,65 @@ def test_freshness_reads_real_snapshots(db_session):
     assert out["kalshi"]["age_seconds"] < 300
 
 
-# --- the adaptive-interval / staleness-window mismatch -----------------------
+# --- consensus: judged by missed closes, not by gaps -------------------------
 
 
-def test_consensus_staleness_tracks_the_adaptive_interval():
-    """The window must follow the schedule actually in force, not the flat setting.
+def test_a_long_quiet_gap_is_not_stale_on_the_game_clock():
+    """Passes are hours or days apart by design; age alone means nothing.
 
-    Found live: with the next kickoff 2 days out the Odds API poller was
-    correctly on the mid tier (21600s, 4x/day), but /health judged it against
-    ``odds_poll_interval_seconds`` (900s) and reported a 14.6-hour-old write as
-    stale. The poller was healthy; the monitor was miscalibrated by 24x, and
-    /health had been reporting "degraded" for most of every week.
-
-    This is the same failure SHAPE as the original outage inverted: there the
-    monitor stayed silent while ingestion was broken, here it cries wolf while
-    ingestion is fine. Both end with nobody trusting the signal.
+    The adaptive-interval monitor once called a healthy poller stale for most
+    of every week (a 14.6h gap judged against 15 minutes). Judging the game
+    clock by age would repeat that with even longer gaps.
     """
-    from arbitrium.ingestion.polling import poll_interval_for
+    out = consensus_report(NOW - timedelta(days=4), 0, now=NOW)
+    assert out["stale"] is False
+    assert out["age_seconds"] == 4 * 86400
+    assert out["schedule"] == "game_clock"
 
-    mid_interval = poll_interval_for(NOW + timedelta(days=2), now=NOW)
-    assert mid_interval == settings.odds_poll_mid_seconds
 
-    # A write one interval old is plainly fine on that schedule.
-    out = staleness_report(
-        {"consensus": NOW - timedelta(seconds=mid_interval)},
-        now=NOW,
-        intervals={"consensus": mid_interval},
+def test_a_missed_close_is_stale_however_recent_the_last_write():
+    out = consensus_report(NOW - timedelta(minutes=2), 1, now=NOW)
+    assert out["stale"] is True and out["missed_closes"] == 1
+
+
+def test_never_written_and_nothing_missed_is_idle_not_stale():
+    assert consensus_report(None, 0, now=NOW)["stale"] is False
+
+
+LATER = datetime(2099, 10, 10, 12, 0, tzinfo=UTC)
+
+
+def _tracked_game(db, *, start, sport="nfl"):
+    ev = Event(
+        sport=sport, league=sport.upper(), home_team="Seattle Seahawks",
+        away_team="Los Angeles Rams", scheduled_start=start, status="scheduled",
+        kalshi_event_ticker=f"KX-{start:%y%m%d%H%M}-{sport}",
+        odds_api_event_id=f"odds-{start:%y%m%d%H%M}-{sport}",
     )
-    assert out["consensus"]["stale"] is False
-    assert out["consensus"]["stale_after_seconds"] == (
-        mid_interval * settings.ingest_staleness_interval_multiple
-    )
-    assert out["consensus"]["poll_interval_seconds"] == mid_interval
+    db.add(ev)
+    db.flush()
+    return ev
 
 
-def test_the_flat_setting_would_have_called_a_healthy_poller_stale():
-    """Pins the regression itself, so reverting to the flat interval fails here."""
-    age = timedelta(hours=14, minutes=36)  # the observed live gap
-
-    honest = staleness_report(
-        {"consensus": NOW - age},
-        now=NOW,
-        intervals={"consensus": settings.odds_poll_mid_seconds},
-    )
-    assert honest["consensus"]["stale"] is False
-
-    miscalibrated = staleness_report({"consensus": NOW - age}, now=NOW)
-    assert miscalibrated["consensus"]["stale"] is True
-
-
-def test_far_tier_tolerates_a_full_day_between_writes():
-    """Beyond a week from kickoff the poller runs daily by design."""
-    out = staleness_report(
-        {"consensus": NOW - timedelta(hours=23)},
-        now=NOW,
-        intervals={"consensus": settings.odds_poll_far_seconds},
-    )
-    assert out["consensus"]["stale"] is False
-
-
-def test_a_genuinely_dead_poller_is_still_caught_on_the_slowest_tier():
-    """The fix must not blind the monitor: daily tier still flags a week of silence."""
-    out = staleness_report(
-        {"consensus": NOW - timedelta(days=7)},
-        now=NOW,
-        intervals={"consensus": settings.odds_poll_far_seconds},
-    )
-    assert out["consensus"]["stale"] is True
+def test_missed_closes_counts_games_that_started_without_one(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "odds_sports_enabled", ["nfl"])
+    # The schedule was live before any of these games.
+    anchor = _tracked_game(db_session, start=LATER - timedelta(days=3))
+    db_session.add(OddsCheckpoint(event_id=anchor.id, sport="nfl", checkpoint="t24h",
+                                  status="captured", captured_at=LATER - timedelta(days=2)))
+    missed = _tracked_game(db_session, start=LATER - timedelta(hours=2))
+    taken = _tracked_game(db_session, start=LATER - timedelta(hours=3))
+    skipped = _tracked_game(db_session, start=LATER - timedelta(hours=4))
+    _tracked_game(db_session, start=LATER + timedelta(minutes=2))  # close not yet due
+    _tracked_game(db_session, start=LATER - timedelta(hours=1), sport="nba")  # disabled sport
+    db_session.add_all([
+        OddsCheckpoint(event_id=taken.id, sport="nfl", checkpoint="close", status="captured"),
+        OddsCheckpoint(event_id=skipped.id, sport="nfl", checkpoint="close",
+                       status="skipped_budget", reason="reserve"),
+    ])
+    db_session.flush()
+    assert missed is not None
+    assert missed_closes(db_session, now=LATER) == 1
 
 
 # --- strict mode, for external uptime monitoring ----------------------------

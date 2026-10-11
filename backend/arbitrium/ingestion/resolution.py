@@ -1,4 +1,4 @@
-"""Outcome resolution: who actually won, from The Odds API scores endpoint.
+"""Outcome resolution: who actually won — ESPN first, The Odds API as fallback.
 
 This is the ground truth calibration is graded against, and it is the one
 **perishable** job in the system. The scores endpoint caps ``daysFrom`` at 3
@@ -9,9 +9,10 @@ is irreversible. Everything below is shaped by that.
 
 Consequences worth naming:
 
-* **The database is asked before a credit is spent.** ``run_resolution`` fetches
-  nothing unless events are actually awaiting a result, and derives which sports
-  to fetch from those events. Off-season the resolver costs literally zero.
+* **ESPN is the primary source and it is free.** The paid scores endpoint (2
+  credits a call) is asked only about games ESPN has still not resolved
+  ``resolution_odds_fallback_after_hours`` after kickoff, only for enabled
+  sports, and never out of the credit reserve. In a normal week it costs zero.
 * **Nothing is ever overwritten.** A differing result for an already-final event
   is a CONFLICT: logged loudly, never applied. Either our first read was wrong or
   the source corrected itself, and both are facts a human should adjudicate.
@@ -43,8 +44,15 @@ from arbitrium.db.engine import get_session
 from arbitrium.db.models import Event
 from arbitrium.ingestion.espn import fetch_results
 from arbitrium.ingestion.events import find_event_by_match
-from arbitrium.ingestion.odds_api import ODDS_SPORTS, OddsApiClient, OddsSport
+from arbitrium.ingestion.governor import resolution_affordable
+from arbitrium.ingestion.odds_api import (
+    ODDS_SPORTS,
+    SCORES_CALL_COST,
+    OddsApiClient,
+    OddsSport,
+)
 from arbitrium.ingestion.outcomes import ScoreExtract, coerce_score, decide_winner
+from arbitrium.ingestion.polling import sport_polling
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.matching import EventKey, MatchStatus
 from arbitrium.reference.teams import resolve_by_name
@@ -118,7 +126,7 @@ def extract_score(payload: dict, sport_cfg: OddsSport) -> ScoreExtract | None:
         return None
 
     if home_score == 0 and away_score == 0:
-        # For the sports supported today (NFL/NBA) a completed 0-0 is effectively
+        # For the sports supported today (NFL/NBA/NHL) a completed 0-0 is effectively
         # impossible, so this is far more likely a premature `completed` flag than
         # a real result. Skipping costs one more pass inside the window; recording
         # it would write a fabricated outcome into calibration ground truth.
@@ -176,7 +184,9 @@ def _find_event_id(session: Session, extract: ScoreExtract):
     if extract.commence_time is None:
         return None, MatchStatus.UNMATCHED
     key = EventKey(extract.sport, extract.home_team, extract.away_team, extract.commence_time)
-    return find_event_by_match(session, key)
+    # ESPN extracts carry no odds id, so only the scores fallback can claim one.
+    claimed = ("odds_api", extract.odds_api_event_id) if extract.odds_api_event_id else None
+    return find_event_by_match(session, key, claimed=claimed)
 
 
 def resolve_event(
@@ -315,6 +325,42 @@ def sport_keys_for(sports: list[str]) -> list[str]:
     return sorted(k for k, cfg in ODDS_SPORTS.items() if cfg.sport in sports)
 
 
+def fallback_targets(
+    session: Session, *, now: datetime | None = None
+) -> list[tuple[str, datetime]]:
+    """(sport, kickoff) of games ESPN has not resolved and the paid fallback should.
+
+    Old enough that ESPN has had a fair chance (it usually resolves within
+    hours), young enough that the scores endpoint still has them, and only in
+    sports that are allowed to spend.
+    """
+    moment = now or datetime.now(timezone.utc)
+    floor, _ = _window_bounds(moment)
+    enabled = [p.sport for p in sport_polling().values() if p.enabled]
+    rows = session.execute(
+        select(Event.sport, Event.scheduled_start).where(
+            Event.status == STATUS_SCHEDULED,
+            Event.sport.in_(enabled),
+            Event.scheduled_start >= floor,
+            Event.scheduled_start
+            <= moment - timedelta(hours=settings.resolution_odds_fallback_after_hours),
+        )
+    ).all()
+    return [(r.sport, r.scheduled_start) for r in rows]
+
+
+def fallback_keys(targets: list[tuple[str, datetime]]) -> list[str]:
+    """Only the keys in season on a target's date: a preseason key is not asked
+    about a regular-season game, which would cost 2 credits for nothing."""
+    polling = sport_polling()
+    keys: set[str] = set()
+    for sport, start in targets:
+        cfg = polling.get(sport)
+        if cfg is not None:
+            keys.update(cfg.keys_in_season(start.date()))
+    return sorted(keys)
+
+
 def backfill_targets(session: Session, *, now: datetime | None = None) -> list[tuple[str, datetime]]:
     """(sport, kickoff) pairs ESPN should try — everything the primary did not get.
 
@@ -371,7 +417,11 @@ def mark_unresolvable(session: Session, *, now: datetime | None = None) -> int:
 
 
 def _resolve_from_odds_api(session: Session, keys: list[str], counts: dict) -> int:
-    """Primary pass: exact-ID join against The Odds API. Returns events seen."""
+    """Fallback pass: exact-ID join against The Odds API. Returns events seen.
+
+    Each key is checked against the reserve before it is spent; resolution is
+    irreversible, so it ignores the pace tiers, but never the reserve.
+    """
     undeclared = [k for k in keys if k not in ODDS_SPORTS]
     if undeclared:
         raise ValueError(
@@ -380,6 +430,13 @@ def _resolve_from_odds_api(session: Session, keys: list[str], counts: dict) -> i
     seen = 0
     with OddsApiClient() as client:
         for sport_key in keys:
+            if not resolution_affordable(SCORES_CALL_COST):
+                logger.warning(
+                    "Resolution fallback: %s skipped; a scores call would dip into the "
+                    "credit reserve.", sport_key,
+                )
+                counts["fallback_skipped_reserve"] = counts.get("fallback_skipped_reserve", 0) + 1
+                continue
             payloads = client.get_scores(sport_key)
             seen += len(payloads)
             for payload in payloads:
@@ -391,11 +448,11 @@ def _resolve_from_odds_api(session: Session, keys: list[str], counts: dict) -> i
     return seen
 
 
-def _backfill_from_espn(session: Session, counts: dict) -> int:
-    """Fallback pass. Returns the number of events RECOVERED from a lost state.
+def _resolve_from_espn(session: Session, counts: dict) -> int:
+    """Primary pass. Returns the number of events RECOVERED from a lost state.
 
-    Never raises: ESPN is undocumented and best-effort, and a failure here must
-    not take down a pass the primary already served.
+    Never raises: ESPN is undocumented and has no SLA, and its failure must
+    leave the paid fallback free to run rather than take the pass down.
     """
     targets = backfill_targets(session)
     if not targets:
@@ -431,31 +488,27 @@ def _backfill_from_espn(session: Session, counts: dict) -> int:
 def run_resolution(sport_keys: list[str] | None = None) -> tuple[IngestResult, dict]:
     """Resolve everything awaiting a result. Returns (result, detail counters).
 
-    Spends nothing when nothing is pending — the single most important cost
-    decision here, since the resolver would otherwise burn 2 credits per sport
-    per pass all off-season for no possible benefit.
+    ESPN goes first over everything awaiting a result — including rows already
+    condemned, which it can un-condemn. The paid scores call then covers only
+    what ESPN left behind past the fallback age, so a normal week spends zero.
+    ``sport_keys`` forces the paid fallback for those keys (manual recovery).
     """
     counts = {k.value: 0 for k in ResolutionOutcome}
     counts["unresolvable_marked"] = 0
     session = get_session()
     try:
-        pending = pending_resolution(session)
-        keys = sport_keys if sport_keys is not None else sport_keys_for(pending.sports)
+        counts["recovered"] = _resolve_from_espn(session, counts)
+        session.flush()
 
+        keys = sport_keys if sport_keys is not None else fallback_keys(fallback_targets(session))
         seen = 0
-        if pending.resolvable and keys:
+        if keys:
             seen = _resolve_from_odds_api(session, keys, counts)
         else:
-            logger.info(
-                "Resolution: nothing awaiting a result; skipped the scores call (0 credits)."
-            )
+            logger.info("Resolution: ESPN left nothing for the paid fallback (0 credits).")
 
-        # ESPN second, on whatever the primary could not supply — including rows
-        # already condemned, which it can now un-condemn. Free, so breadth costs
-        # nothing; mark_unresolvable runs only AFTER this, so nothing is declared
-        # lost before both sources have tried.
-        counts["recovered"] = _backfill_from_espn(session, counts)
-
+        # Only AFTER both sources have tried, so nothing is declared lost while
+        # one of them could still supply it.
         counts["unresolvable_marked"] = mark_unresolvable(session)
         session.commit()
     finally:
