@@ -1,5 +1,6 @@
 import { fetchPerformance } from "@/lib/api";
 import { EvidenceCard } from "@/components/performance/EvidenceCard";
+import { Stat, StatGroup } from "@/components/performance/Stat";
 import { Card, EmptyState, SectionHeading } from "@/components/primitives";
 import { pct } from "@/lib/format";
 import type { PerformanceResponse } from "@/lib/types";
@@ -31,29 +32,27 @@ function ClvBlock({ data }: { data: PerformanceResponse["closing_line_value"] })
               No priced recommendations yet for this origin.
             </p>
           ) : (
-            <div className="mt-3 flex flex-wrap gap-6">
-              <div>
-                <div className="text-micro text-muted">Mean CLV</div>
-                <div
-                  className={`tabular mt-1 text-display font-semibold ${
+            <div className="mt-3">
+              <StatGroup>
+                <Stat
+                  label="Mean CLV"
+                  value={clv.mean_clv == null ? "—" : pct(clv.mean_clv, 2)}
+                  valueClassName={`text-display font-semibold ${
                     (clv.mean_clv ?? 0) < 0 ? "text-neg" : "text-gain"
                   }`}
-                >
-                  {clv.mean_clv == null ? "—" : pct(clv.mean_clv, 2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-micro text-muted">
-                  Beat the close
-                </div>
-                <div className="tabular mt-1 text-display text-text">
-                  {clv.beat_close ?? "—"}
-                  <span className="text-body text-muted"> / {clv.n}</span>
-                </div>
-                <div className="tabular mt-0.5 text-meta text-muted">
-                  {clv.beat_rate == null ? "" : pct(clv.beat_rate, 1)}
-                </div>
-              </div>
+                />
+                <Stat
+                  label="Beat the close"
+                  value={
+                    <>
+                      {clv.beat_close ?? "—"}
+                      <span className="text-body text-muted"> / {clv.n}</span>
+                    </>
+                  }
+                  valueClassName="text-display text-text"
+                  note={clv.beat_rate == null ? null : pct(clv.beat_rate, 1)}
+                />
+              </StatGroup>
             </div>
           )}
         </Card>

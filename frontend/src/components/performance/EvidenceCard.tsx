@@ -1,6 +1,7 @@
 import { Badge, Card } from "@/components/primitives";
 import { pct } from "@/lib/format";
 import { ReliabilityPlot, CalibrationCurve } from "./CalibrationChart";
+import { Stat, StatGroup } from "./Stat";
 import type { GatedEvidence } from "@/lib/types";
 
 /**
@@ -37,25 +38,24 @@ export function EvidenceCard({
 
       {hasRate ? (
         <>
-          <div className="mt-4 flex flex-wrap items-end gap-6">
-            <div>
-              <div className="text-micro text-muted">Accuracy</div>
-              <div className="tabular mt-1 text-display font-semibold text-text">
-                {pct(e.accuracy, 1)}
-              </div>
-              {e.accuracy_95ci ? (
-                <div className="tabular mt-0.5 text-meta text-muted">
-                  95% CI {pct(e.accuracy_95ci[0], 1)} – {pct(e.accuracy_95ci[1], 1)}
-                </div>
-              ) : null}
-            </div>
-            <div>
-              <div className="text-micro text-muted">Brier score</div>
-              <div className="tabular mt-1 text-title text-text">
-                {e.brier_score?.toFixed(4) ?? "—"}
-              </div>
-              <div className="mt-0.5 text-micro text-faint">lower is better</div>
-            </div>
+          <div className="mt-4">
+            <StatGroup>
+              <Stat
+                label="Accuracy"
+                value={pct(e.accuracy, 1)}
+                note={
+                  e.accuracy_95ci
+                    ? `95% CI ${pct(e.accuracy_95ci[0], 1)} – ${pct(e.accuracy_95ci[1], 1)}`
+                    : null
+                }
+              />
+              <Stat
+                label="Brier score"
+                value={e.brier_score?.toFixed(4) ?? "—"}
+                valueClassName="text-headline font-medium text-text"
+                note="lower is better"
+              />
+            </StatGroup>
           </div>
 
           {e.reliability_bins.length > 0 ? (
