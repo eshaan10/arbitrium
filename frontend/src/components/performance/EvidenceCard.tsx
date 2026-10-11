@@ -24,8 +24,15 @@ export function EvidenceCard({
   const e = evidence;
   const hasRate = e.accuracy != null;
 
+  // From md up, cards sit side by side and each one spans the same three rows
+  // of the parent grid (header, stats, plots) through a subgrid. A longer
+  // description in one card then pushes both cards' stats and charts down
+  // together instead of leaving them at different heights. Both plots share
+  // the plots row: the reliability plots have one height, so a fitted curve
+  // below one still starts level with any curve beside it, and a row with no
+  // curve has no empty track left over. Below md the card is ordinary flow.
   return (
-    <Card className="p-4">
+    <Card className="p-4 md:row-span-3 md:grid md:grid-rows-subgrid md:gap-y-0">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-body font-medium text-text">{title}</h3>
@@ -38,7 +45,7 @@ export function EvidenceCard({
 
       {hasRate ? (
         <>
-          <div className="mt-4">
+          <div className="mt-4 md:row-start-2">
             <StatGroup>
               <Stat
                 label="Accuracy"
@@ -58,23 +65,25 @@ export function EvidenceCard({
             </StatGroup>
           </div>
 
-          {e.reliability_bins.length > 0 ? (
-            <div className="mt-4">
-              <ReliabilityPlot bins={e.reliability_bins} />
-            </div>
-          ) : null}
+          <div className="md:row-start-3">
+            {e.reliability_bins.length > 0 ? (
+              <div className="mt-4">
+                <ReliabilityPlot bins={e.reliability_bins} />
+              </div>
+            ) : null}
 
-          {e.calibration_curve && e.calibration_curve.length > 1 ? (
-            <div className="mt-5 border-t border-border pt-4">
-              <h4 className="mb-2 text-micro text-muted">
-                Fitted calibration curve
-              </h4>
-              <CalibrationCurve points={e.calibration_curve} />
-            </div>
-          ) : null}
+            {e.calibration_curve && e.calibration_curve.length > 1 ? (
+              <div className="mt-5 border-t border-border pt-4">
+                <h4 className="mb-2 text-micro text-muted">
+                  Fitted calibration curve
+                </h4>
+                <CalibrationCurve points={e.calibration_curve} />
+              </div>
+            ) : null}
+          </div>
         </>
       ) : (
-        <div className="mt-3 rounded-md border border-dashed border-border bg-[var(--surface-sunken)] p-3">
+        <div className="mt-3 rounded-md border border-dashed border-border bg-[var(--surface-sunken)] p-3 md:row-span-2 md:row-start-2 md:mt-4 md:self-start">
           <p className="prose text-meta leading-relaxed text-dim">
             {e.reason ?? "Not enough resolved games to report a rate yet."}
           </p>
