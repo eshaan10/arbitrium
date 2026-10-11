@@ -228,7 +228,7 @@ export function Dashboard({
 
       <SinceLastVisit events={all} />
 
-      <InterestingNow events={all} noEdge={noEdge} />
+      <InterestingNow events={all} noEdge={noEdge} sport={sport} />
 
       <div>
         <Toolbar

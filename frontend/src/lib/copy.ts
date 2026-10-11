@@ -1,5 +1,5 @@
 import { cents, plural } from "./format";
-import { KNOWN_SPORTS } from "./sports";
+import { sportLabel } from "./sports";
 import type { Divergence } from "./types";
 
 /**
@@ -164,7 +164,7 @@ function singleSportLabel(events: Divergence[]): string | null {
   const sports = new Set(events.map((d) => d.sport?.toLowerCase()).filter(Boolean));
   if (sports.size !== 1) return null;
   const [key] = sports as Set<string>;
-  return KNOWN_SPORTS.find((s) => s.key === key)?.label ?? key.toUpperCase();
+  return sportLabel(key);
 }
 
 export interface NoEdgeCopy {

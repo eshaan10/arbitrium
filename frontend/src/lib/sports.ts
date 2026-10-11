@@ -9,6 +9,12 @@ export const KNOWN_SPORTS = [
   { key: "nhl", label: "NHL" },
 ] as const;
 
+/** Display label for a sport key: "nba" -> "NBA", unknown keys upper-cased. */
+export function sportLabel(key: string): string {
+  const k = key.toLowerCase();
+  return KNOWN_SPORTS.find((s) => s.key === k)?.label ?? k.toUpperCase();
+}
+
 /**
  * "available": the feed has games for it. "empty": the feed has none, so the
  * tab says "not ingested". "unknown": the unfiltered feed has not loaded yet,

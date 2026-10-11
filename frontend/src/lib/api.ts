@@ -96,8 +96,19 @@ export function fetchEventsLookup(ids: string[]): Promise<EventsLookupResponse> 
   return get<EventsLookupResponse>(`/events/lookup?ids=${encodeURIComponent(ids.join(","))}`);
 }
 
+/**
+ * The backend's cap on movers. /activity ranks movers across every sport and
+ * has no sport filter, so the rail filters on the client — and the default of
+ * 5 meant one busy sport could fill the whole list. Asking for the cap gives a
+ * selected sport the best chance to appear, and tells moverForSport when the
+ * list may have been cut short.
+ */
+export const MOVERS_LIMIT = 25;
+
 export function fetchActivity(hours = 24, limit = 40): Promise<ActivityResponse> {
-  return get<ActivityResponse>(`/activity?hours=${hours}&limit=${limit}`);
+  return get<ActivityResponse>(
+    `/activity?hours=${hours}&limit=${limit}&movers_limit=${MOVERS_LIMIT}`,
+  );
 }
 
 /**
