@@ -33,7 +33,9 @@ export function EvidenceCard({
   // curve has no empty track left over. Below md the card is ordinary flow.
   return (
     <Card className="p-4 md:row-span-3 md:grid md:grid-rows-subgrid md:gap-y-0">
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      {/* Fills the shared header row from md up; content-between sends the
+          wrapped badge line to the bottom so it sits right above the stats. */}
+      <div className="flex flex-wrap items-start justify-between gap-2 md:content-between">
         <div>
           <h3 className="text-body font-medium text-text">{title}</h3>
           <p className="prose mt-1 max-w-prose text-meta leading-relaxed text-muted">{description}</p>
