@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
-import type { Mode } from "@/lib/mode";
 import type { SportTab } from "@/lib/sports";
 
 function useSetParam() {
@@ -86,36 +85,7 @@ export function SportTabs({ active, tabs }: { active: string | null; tabs: Sport
   );
 }
 
-/** Simple is the default everywhere. Advanced is opt-in and shareable. */
-export function ModeToggle({ mode }: { mode: Mode }) {
-  const setParam = useSetParam();
-  return (
-    <div
-      className="inline-flex shrink-0 rounded-sm border border-border p-0.5"
-      role="group"
-      aria-label="Detail level"
-    >
-      {(["simple", "advanced"] as const).map((m) => (
-        <button
-          key={m}
-          aria-pressed={mode === m}
-          onClick={() => setParam({ mode: m === "simple" ? null : m })}
-          title={`${m === "simple" ? "Simple" : "Advanced"} detail level`}
-          className={`tap rounded-[3px] px-2 py-1 text-meta capitalize transition-colors sm:px-3 ${
-            mode === m ? "bg-raised text-text" : "text-muted hover:text-dim"
-          }`}
-        >
-          {/* One letter on a phone. The pair still reads as a two-state toggle
-              because both states are visible; an icon would not. */}
-          <span className="sm:hidden">{m === "simple" ? "S" : "A"}</span>
-          <span className="hidden sm:inline">{m}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export type View = "all" | "recommended" | "arbitrage" | "unscoreable" | "my-teams" | "my-games";
+export type View ="all" | "recommended" | "arbitrage" | "unscoreable" | "my-teams" | "my-games";
 
 /**
  * Two personal views, kept apart.

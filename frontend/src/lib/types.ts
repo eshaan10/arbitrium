@@ -70,6 +70,28 @@ export interface Outcome {
   tradeable: boolean;
 }
 
+export type LiveStatus = "scheduled" | "in_progress" | "halftime" | "final" | "postponed";
+
+export interface Live {
+  status: LiveStatus;
+  period: number | null;
+  clock: string | null;
+  detail: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  home_record: string | null;
+  away_record: string | null;
+  venue: string | null;
+  broadcast: string | null;
+  possession_side: "home" | "away" | null;
+  down_distance: string | null;
+  last_play: string | null;
+  linescore: { home: number[]; away: number[] } | null;
+  updated_at: string;
+}
+
+export type PickResult = "hit" | "miss" | null;
+
 export interface Divergence {
   event_id: string;
   sport: string | null;
@@ -78,6 +100,8 @@ export interface Divergence {
   away_team: string | null;
   scheduled_start: string;
   status: DivergenceStatus;
+  live: Live | null;
+  pick_result: PickResult;
   reason: string | null;
   sources: Source[];
   n_books: number | null;
@@ -285,6 +309,8 @@ export interface EventRecord {
   unresolvable_reason: string | null;
   home_away_source?: string | null;
   kalshi_event_ticker?: string | null;
+  live?: Live | null;
+  pick_result?: PickResult;
 }
 
 export interface EventsLookupResponse {

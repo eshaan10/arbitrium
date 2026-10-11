@@ -82,6 +82,7 @@
      used only for status, never for a data series or a money figure. */
   --status-ok: #2fc6b0;
   --neutral: #6b7079;
+  --live: #ff5a4f;
 
   /* --- data-viz series (event detail, performance) ---
      Kalshi carries the accent because it is the subject of every chart. The

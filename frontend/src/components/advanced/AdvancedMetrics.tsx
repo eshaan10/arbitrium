@@ -3,9 +3,7 @@ import { money, num, pct, titleCase } from "@/lib/format";
 import type { Divergence } from "@/lib/types";
 
 /**
- * Advanced mode only. This is an ADDITIONAL mount, not a CSS reveal — jargon
- * stays structurally out of Simple mode rather than depending on a class that
- * could leak.
+ * The expanded panel's metrics grid.
  *
  * Divergence and net edge sit next to each other on purpose: a large
  * divergence with a negative net edge is real and worth nothing, and showing

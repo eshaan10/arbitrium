@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApiError, fetchEvent, fetchEventHistory } from "@/lib/api";
-import { parseMode } from "@/lib/mode";
 import { kalshiUrl, contextLine } from "@/lib/copy";
 import { pct, money, num } from "@/lib/format";
 import { KickoffTime } from "@/components/event/KickoffTime";
@@ -15,6 +14,7 @@ import { RecordView } from "@/components/event/RecordView";
 import { EventPin } from "@/components/event/EventPin";
 import { recSignature } from "@/lib/changes";
 import { OutcomeSection } from "@/components/event/OutcomeSection";
+import { Scoreboard } from "@/components/event/Scoreboard";
 import { BooksTable } from "@/components/advanced/BooksTable";
 import { ArbitragePanel } from "@/components/advanced/ArbitragePanel";
 import { SectionHeading, Card } from "@/components/primitives";
@@ -107,8 +107,8 @@ export default async function EventPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const sp = await searchParams;
-  const mode = parseMode(sp.mode);
+  // searchParams reserved for future per-event params; mode has been removed.
+  void searchParams;
 
   // A finished game must still resolve. /divergences scores only scheduled
   // events, so resolving a deep link against that list 404'd every game the
@@ -189,6 +189,17 @@ export default async function EventPage({
         ) : null}
       </div>
 
+      {(d?.live ?? ev.live) ? (
+        <Scoreboard
+          home_team={ev.home_team}
+          away_team={ev.away_team}
+          scheduled_start={ev.scheduled_start}
+          sport={ev.sport}
+          live={(d?.live ?? ev.live) ?? null}
+          pick_result={d?.pick_result ?? ev.pick_result ?? null}
+        />
+      ) : null}
+
       {d ? (
         <>
           <Card className="p-4">
@@ -227,52 +238,48 @@ export default async function EventPage({
             </div>
           </div>
 
-          {mode === "advanced" ? (
-            <>
-              <div>
-                <SectionHeading note="The numbers behind the recommendation, and what each one does not mean.">
-                  What the numbers mean
-                </SectionHeading>
-                <Card className="px-4 py-1">
-                  <Explain name="Divergence" value={pct(d.max_abs_divergence)}>
-                    How far apart the two sources&apos; vig-stripped beliefs are. This is the input
-                    calibration needs — it is <em>not</em> money, and roughly half of real
-                    divergences are smaller than the spread required to capture them.
-                  </Explain>
-                  <Explain
-                    name="Net edge after spread"
-                    value={pct(d.best_net_edge)}
-                    negative={(d.best_net_edge ?? 0) < 0}
-                  >
-                    What survives crossing Kalshi&apos;s executable bid/ask. This is the capturable
-                    number. A large divergence with a negative net edge is a real measurement worth
-                    nothing.
-                  </Explain>
-                  <Explain
-                    name="Expected value at depth"
-                    value={money(d.best_expected_value)}
-                    negative={(d.best_expected_value ?? 0) < 0}
-                  >
-                    Value at the size actually resting on the book, not at an unlimited fill. It
-                    only pays if the sportsbook consensus is the better estimate — that premise is
-                    what the performance page is grading.
-                  </Explain>
-                  <Explain name="Consensus books" value={num(d.n_books)}>
-                    Bookmakers behind the median. Below {minConsensusBooks} the engine refuses to
-                    score the event rather than calling two books a consensus.
-                  </Explain>
-                </Card>
-              </div>
+          <div>
+            <SectionHeading note="The numbers behind the recommendation, and what each one does not mean.">
+              What the numbers mean
+            </SectionHeading>
+            <Card className="px-4 py-1">
+              <Explain name="Divergence" value={pct(d.max_abs_divergence)}>
+                How far apart the two sources&apos; vig-stripped beliefs are. This is the input
+                calibration needs. It is <em>not</em> money, and roughly half of real
+                divergences are smaller than the spread required to capture them.
+              </Explain>
+              <Explain
+                name="Net edge after spread"
+                value={pct(d.best_net_edge)}
+                negative={(d.best_net_edge ?? 0) < 0}
+              >
+                What survives crossing Kalshi&apos;s executable bid/ask. This is the capturable
+                number. A large divergence with a negative net edge is a real measurement worth
+                nothing.
+              </Explain>
+              <Explain
+                name="Expected value at depth"
+                value={money(d.best_expected_value)}
+                negative={(d.best_expected_value ?? 0) < 0}
+              >
+                Value at the size actually resting on the book, not at an unlimited fill. It
+                only pays if the sportsbook consensus is the better estimate. That premise is
+                what the performance page is grading.
+              </Explain>
+              <Explain name="Consensus books" value={num(d.n_books)}>
+                Bookmakers behind the median. Below {minConsensusBooks} the engine refuses to
+                score the event rather than calling two books a consensus.
+              </Explain>
+            </Card>
+          </div>
 
-              {d.outcomes.some((o) => o.books) ? (
-                <div>
-                  <SectionHeading>Every book</SectionHeading>
-                  <Card className="p-4">
-                    <BooksTable outcomes={d.outcomes} />
-                  </Card>
-                </div>
-              ) : null}
-            </>
+          {d.outcomes.some((o) => o.books) ? (
+            <div>
+              <SectionHeading>Every book</SectionHeading>
+              <Card className="p-4">
+                <BooksTable outcomes={d.outcomes} />
+              </Card>
+            </div>
           ) : null}
 
           <ArbitragePanel d={d} />

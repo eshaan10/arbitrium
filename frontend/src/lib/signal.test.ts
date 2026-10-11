@@ -125,3 +125,24 @@ describe("meter", () => {
     expect(formatSignal(value)).toBe(text);
   });
 });
+
+describe("live games are excluded from ranking", () => {
+  function withLive(d: Divergence, status: "in_progress" | "halftime" | "final"): Divergence {
+    return { ...d, live: { status } as Divergence["live"] };
+  }
+
+  it("gives a live game no signal, even when scored", () => {
+    const d = withLive(ev("a", { ev: 99 }), "in_progress");
+    expect(signalOf(d)).toBeNull();
+  });
+
+  it("ranks scheduled games above live ones", () => {
+    const scheduled1 = ev("s1", { ev: 1 });
+    const scheduled2 = ev("s2", { ev: 2 });
+    const scheduled3 = ev("s3", { ev: 3 });
+    const live1 = withLive(ev("l1", { ev: 50 }), "in_progress");
+    const live2 = withLive(ev("l2", { ev: 60 }), "halftime");
+    const ranked = rankBySignal([scheduled1, scheduled2, scheduled3, live1, live2]);
+    expect(ids(ranked).slice(0, 3)).toEqual(["s3", "s2", "s1"]);
+  });
+});

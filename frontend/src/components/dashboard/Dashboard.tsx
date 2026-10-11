@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchActivity,
@@ -35,7 +35,7 @@ import { SinceLastVisit } from "./SinceLastVisit";
 import { LandingExplainer } from "./LandingExplainer";
 import { PastGames } from "./PastGames";
 import { UnscoreableGroup } from "./UnscoreableGroup";
-import type { Mode } from "@/lib/mode";
+import { isLive } from "@/lib/liveState";
 import type { Divergence, DivergencesResponse } from "@/lib/types";
 
 /**
@@ -54,7 +54,6 @@ export function Dashboard({
   initialData,
   initialAllData,
   sport,
-  mode,
   view,
   serverNow,
 }: {
@@ -62,7 +61,6 @@ export function Dashboard({
   /** The unfiltered feed, for sport-tab availability; null on the All tab. */
   initialAllData: DivergencesResponse | null;
   sport: string | null;
-  mode: Mode;
   view: View;
   /** The server's clock, used for the first paint so grouping cannot mismatch. */
   serverNow: number;
@@ -90,11 +88,29 @@ export function Dashboard({
   } = useFavoriteGames();
   const { record } = useRecentlyViewed();
 
+  // Mode toggle was dropped. Clear any stale URL-only state we may have
+  // written to localStorage in a prior build. No key is known to exist today.
+  useEffect(() => {
+    try {
+      localStorage.removeItem("arbitrium:mode");
+    } catch {}
+  }, []);
+
   const query = { sport: sport ?? undefined, limit: LIST_LIMIT };
   const { data, error, isFetching, dataUpdatedAt } = useQuery({
     queryKey: queryKeys.divergences(query),
     queryFn: () => fetchDivergences(query),
     initialData: initialData ?? undefined,
+    // 30s while the tab is visible AND at least one game is live; otherwise
+    // the provider's 60s default stands. Live games are what make a stale card
+    // a wrong card.
+    refetchInterval: (q) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return 60_000;
+      }
+      const events = (q.state.data as DivergencesResponse | undefined)?.divergences ?? [];
+      return events.some((d) => isLive(d)) ? 30_000 : 60_000;
+    },
   });
 
   // The UNFILTERED feed, for the sport tabs' availability and counts. On the
@@ -154,7 +170,7 @@ export function Dashboard({
 
   const counts: Record<View, number> = {
     all: all.length,
-    recommended: all.filter((d) => d.recommendation).length,
+    recommended: all.filter((d) => d.recommendation && !isLive(d)).length,
     arbitrage: all.filter((d) => d.is_arbitrage).length,
     unscoreable: all.filter((d) => d.status !== "scored").length,
     "my-teams": all.filter(hasFollowedTeam).length,
@@ -168,7 +184,7 @@ export function Dashboard({
   });
 
   const matchesView = (d: Divergence) => {
-    if (view === "recommended") return d.recommendation != null;
+    if (view === "recommended") return d.recommendation != null && !isLive(d);
     if (view === "arbitrage") return d.is_arbitrage;
     if (view === "unscoreable") return d.status !== "scored";
     if (view === "my-teams") return hasFollowedTeam(d);
@@ -239,7 +255,6 @@ export function Dashboard({
           personalReady={followReady && gamesReady}
           followedTeamCount={followedTeams.length}
           favoriteGameCount={pinnedIds.length}
-          mode={mode}
           search={search}
           onSearch={setSearch}
           resultCount={visible.length}
@@ -262,7 +277,7 @@ export function Dashboard({
                       it. */}
                   {noEdge.body}{" "}
                   <Link
-                    href={browseAllHref(sport, mode)}
+                    href={browseAllHref(sport)}
                     className="tap text-signal-600 underline-offset-2 hover:underline"
                   >
                     Browse all {counts.all} events →
@@ -300,7 +315,6 @@ export function Dashboard({
                           key={d.event_id}
                           d={d}
                           minBooks={minBooks}
-                          mode={mode}
                           isFavoriteGame={isFavoriteGame(d.event_id)}
                           onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
                           move={moves.get(d.event_id)}
@@ -322,7 +336,6 @@ export function Dashboard({
                           key={d.event_id}
                           d={d}
                           minBooks={minBooks}
-                          mode={mode}
                           isFollowed={isFollowed}
                           onToggleFollow={toggleFollow}
                           isFavoriteGame={isFavoriteGame(d.event_id)}

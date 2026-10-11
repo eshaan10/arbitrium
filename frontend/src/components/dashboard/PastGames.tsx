@@ -166,17 +166,24 @@ export function PastGames({ pins }: { pins: PinnedGame[] }) {
       return event && event.status !== "scheduled" ? grade(event, pin) : null;
     })
     .filter((g): g is Graded => g !== null)
-    .sort(
-      (a, b) =>
-        new Date(b.event.scheduled_start).getTime() - new Date(a.event.scheduled_start).getTime(),
-    );
+    .sort((a, b) => {
+      const aLive =
+        a.event.live?.status === "in_progress" || a.event.live?.status === "halftime";
+      const bLive =
+        b.event.live?.status === "in_progress" || b.event.live?.status === "halftime";
+      if (aLive !== bLive) return aLive ? -1 : 1;
+      return (
+        new Date(b.event.scheduled_start).getTime() -
+        new Date(a.event.scheduled_start).getTime()
+      );
+    });
 
   if (graded.length === 0) return null;
 
   return (
     <section>
       <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
-        Finished
+        In progress or past
         <span className="tabular text-micro font-normal text-faint">{graded.length}</span>
       </h2>
       <div className="grid gap-2.5 lg:grid-cols-2">
