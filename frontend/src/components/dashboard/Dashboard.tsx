@@ -9,8 +9,8 @@ import {
   LIST_LIMIT,
   queryKeys,
 } from "@/lib/api";
-import { sortForDisplay } from "@/lib/confidence";
-import { groupEvents } from "@/lib/grouping";
+import { groupEvents, type Group } from "@/lib/grouping";
+import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
 import { sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
 import { netMovesByEvent } from "@/lib/moves";
@@ -71,6 +71,8 @@ export function Dashboard({
   const { density } = useDensity();
   // One open row at a time, across every group.
   const [openRow, setOpenRow] = useState<string | null>(null);
+  // "Show N more" in Today, which expands in place until the page is left.
+  const [todayExpanded, setTodayExpanded] = useState(false);
 
   const {
     followedTeams,
@@ -170,12 +172,14 @@ export function Dashboard({
     return true;
   };
 
-  const visible = sortForDisplay(
-    all.filter(
-      (d) =>
-        matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
-    ),
+  // Sections are ranked by signal individually (see sectionRows), so the
+  // flat list needs no order of its own.
+  const visible = all.filter(
+    (d) => matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
   );
+  // One scale for every meter on the page, so two rows' meters compare
+  // honestly even when they sit in different sections.
+  const scale = signalScale(visible);
 
   // Grouping decides DOM structure, so it uses the SERVER's clock until the
   // client is live; both renders then agree. After that it rides the poll
@@ -186,6 +190,23 @@ export function Dashboard({
   );
 
   const foldUnscoreable = shouldFold(view, search);
+
+  /**
+   * One section's rows: strongest signal first, unscoreable games folded as
+   * before, and Today capped at the TODAY_PER_SPORT strongest per sport.
+   *
+   * The cap follows the fold's rules (shouldFold): a search, My Teams, My
+   * Games and the Can't-score view must show every match, so they are never
+   * capped. Hidden rows are only ever behind "Show N more", and the section
+   * heading keeps counting all of them.
+   */
+  const sectionRows = (group: Group) => {
+    const [shown, folded] = splitFoldable(rankBySignal(group.events), foldUnscoreable);
+    if (group.key !== "today" || !foldUnscoreable) return { rows: shown, more: 0, folded };
+    const { kept, hidden } = capPerSport(shown, TODAY_PER_SPORT);
+    if (hidden.length === 0) return { rows: shown, more: 0, folded };
+    return { rows: todayExpanded ? shown : kept, more: hidden.length, folded };
+  };
 
   const recordOpen = (ev: Divergence) =>
     record({
@@ -259,7 +280,7 @@ export function Dashboard({
           ) : (
             <div className="space-y-9">
               {groups.map((group) => {
-                const [shown, folded] = splitFoldable(group.events, foldUnscoreable);
+                const { rows: shown, more, folded } = sectionRows(group);
                 return (
                 <section key={group.key}>
                   <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
@@ -285,6 +306,7 @@ export function Dashboard({
                           onOpen={recordOpen}
                           open={openRow === d.event_id}
                           onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                          signalScale={scale}
                         />
                       ))}
                     </div>
@@ -306,10 +328,23 @@ export function Dashboard({
                           onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
                           move={moves.get(d.event_id)}
                           onOpen={recordOpen}
+                          signalScale={scale}
                         />
                       ))}
                     </div>
                   )}
+                  {more > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={todayExpanded}
+                      onClick={() => setTodayExpanded((v) => !v)}
+                      className="tap mt-3 rounded-sm px-1 text-[13px] font-medium text-signal-600 underline-offset-4 hover:underline"
+                    >
+                      {todayExpanded
+                        ? "Show fewer"
+                        : `Show ${more} more ${more === 1 ? "game" : "games"}`}
+                    </button>
+                  ) : null}
                   <UnscoreableGroup events={folded} minBooks={minBooks} />
                 </section>
                 );

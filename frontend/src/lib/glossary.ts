@@ -42,6 +42,12 @@ export const GLOSSARY = {
       "What's left of a divergence after paying Kalshi's buy/sell spread. This is the number that can actually be captured.",
     anchor: "divergence",
   },
+  signal: {
+    term: "Signal",
+    short:
+      "A relative ranking signal, not a probability or a promised profit: the edge left after Kalshi's spread, times the contracts resting at that price. Rows are ordered by it. Not yet calibrated across sports.",
+    anchor: "divergence",
+  },
   depth: {
     term: "Depth",
     short:

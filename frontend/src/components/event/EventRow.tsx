@@ -5,6 +5,7 @@ import { BetControls } from "@/components/recommendation/BetControls";
 import { AdvancedMetrics } from "@/components/advanced/AdvancedMetrics";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import { TeamLogo } from "./Matchup";
+import { SignalMeter } from "./Signal";
 import { FavoriteGameButton } from "./FavoriteGameButton";
 import { KickoffTime } from "./KickoffTime";
 import { MoveChip } from "./MoveChip";
@@ -43,6 +44,8 @@ type RowProps = {
   onToggleFavoriteGame: (eventId: string) => void;
   move?: NetMove;
   onOpen: (d: Divergence) => void;
+  /** Strongest signal in the list this row sits in; omit to hide the meter. */
+  signalScale?: number;
 };
 
 export function EventRow({
@@ -148,6 +151,7 @@ function RecommendationRow({
   onToggleFavoriteGame,
   move,
   onOpen,
+  signalScale,
   open,
   onToggle,
 }: RowProps & { r: Recommendation; open: boolean; onToggle: (eventId: string) => void }) {
@@ -195,6 +199,7 @@ function RecommendationRow({
           <Pill r={r} className="px-3.5 py-1.5 text-[13px]" />
           <Books r={r} className="hidden w-[90px] text-right lg:block" />
           <Edge r={r} />
+          {signalScale != null ? <SignalMeter d={d} scale={signalScale} /> : null}
           <Chevron open={open} />
         </div>
 
@@ -207,11 +212,16 @@ function RecommendationRow({
             </span>
             <span className="mt-1 block truncate text-micro text-faint">{matchupText(d)}</span>
           </span>
+          {/* The meter lives under the kickoff, not beside the matchup: on the
+              matchup line it squeezed team names back into truncation. */}
           <span className="flex shrink-0 flex-col items-end">
             <Pill r={r} className="px-2.5 py-1 text-micro" />
             <span className="mt-1 whitespace-nowrap text-micro text-faint">
               <KickoffTime iso={d.scheduled_start} separator=", " />
             </span>
+            {signalScale != null ? (
+              <SignalMeter d={d} scale={signalScale} className="mt-1" />
+            ) : null}
           </span>
         </div>
       </div>
@@ -248,6 +258,12 @@ function RecommendationRow({
                   Strength: <span className="font-medium text-text">{conf.label}</span>
                 </span>
                 <InfoPopover term="confidence" />
+                {signalScale != null ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <SignalMeter d={d} scale={signalScale} label />
+                    <InfoPopover term="signal" />
+                  </span>
+                ) : null}
                 {move ? <MoveChip move={move} /> : null}
               </span>
               {mode === "advanced" ? <AdvancedMetrics d={d} /> : null}
@@ -320,6 +336,7 @@ function QuietRow({
   isFavoriteGame,
   onToggleFavoriteGame,
   onOpen,
+  signalScale,
 }: RowProps) {
   const scored = d.status === "scored";
   const reason = shortUnscoreableReason(d, minBooks);
@@ -358,6 +375,8 @@ function QuietRow({
         </span>
         {!scored ? (
           <span className="shrink-0 text-micro text-faint">{STATUS_LABEL[d.status]}</span>
+        ) : signalScale != null ? (
+          <SignalMeter d={d} scale={signalScale} />
         ) : null}
         <span className="shrink-0 whitespace-nowrap text-micro text-faint">
           <KickoffTime iso={d.scheduled_start} separator=", " />
@@ -372,8 +391,13 @@ function QuietRow({
             {brief}
           </span>
         </span>
-        <span className="shrink-0 whitespace-nowrap text-micro text-faint">
-          <KickoffTime iso={d.scheduled_start} separator=", " />
+        <span className="flex shrink-0 flex-col items-end">
+          <span className="whitespace-nowrap text-micro text-faint">
+            <KickoffTime iso={d.scheduled_start} separator=", " />
+          </span>
+          {scored && signalScale != null ? (
+            <SignalMeter d={d} scale={signalScale} className="mt-1" />
+          ) : null}
         </span>
       </div>
     </article>

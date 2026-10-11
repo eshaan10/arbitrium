@@ -86,3 +86,12 @@ describe("team lookup", () => {
     expect(teamInitials(name)).toBe(initials);
   });
 });
+
+describe("NBA teams behave like NFL teams in the dashboard", () => {
+  it("are found by short name and abbreviation in the team search", async () => {
+    const { matchesTeamQuery } = await import("./teams");
+    expect(matchesTeamQuery("spurs", "San Antonio Spurs")).toBe(true);
+    expect(matchesTeamQuery("lac", "Los Angeles Clippers")).toBe(true);
+    expect(matchesTeamQuery("clippers", "LA Clippers")).toBe(true);
+  });
+});
