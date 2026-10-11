@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import { groupEvents, type Group } from "@/lib/grouping";
 import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
-import { sportTabs } from "@/lib/sports";
+import { browseAllHref, sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
 import { netMovesByEvent } from "@/lib/moves";
 import {
@@ -262,7 +262,7 @@ export function Dashboard({
                       it. */}
                   {noEdge.body}{" "}
                   <Link
-                    href="/?view=all"
+                    href={browseAllHref(sport, mode)}
                     className="tap text-signal-600 underline-offset-2 hover:underline"
                   >
                     Browse all {counts.all} events →
