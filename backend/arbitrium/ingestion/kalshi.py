@@ -30,7 +30,7 @@ import logging
 import re
 import uuid as uuid_mod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import case, func, select, update
@@ -44,7 +44,7 @@ from arbitrium.ingestion.normalize import normalize_kalshi_event
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.ingestion.snapshots import insert_snapshots, snapshot_count
 from arbitrium.matching import EventKey, MatchStatus
-from arbitrium.reference.teams import resolve_team
+from arbitrium.reference.teams import kalshi_strike_uuid, resolve_team
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +60,19 @@ class SeriesConfig:
     league: str
     outcome_count: int
     has_draw: bool
+    # When set, the real start is the markets' ``occurrence_datetime`` minus this.
+    # None => fall back to the ticker's date (midnight UTC), as NFL does today.
+    occurrence_lead: timedelta | None = None
 
 
 # Every series in KALSHI_SERIES_TICKERS MUST appear here; run_ingest fails loud on
 # an undeclared series so we never ingest a game whose shape/teams we can't map.
 SERIES_CONFIG: dict[str, SeriesConfig] = {
     "KXNFLGAME": SeriesConfig("nfl", "NFL", 2, False),
-    "KXNBAGAME": SeriesConfig("nba", "NBA", 2, False),
+    # NBA occurrence_datetime is the scheduled tip + exactly 3h — verified 44/44
+    # open events against ESPN's tip times on 2026-10-09. The exact tip is what
+    # lets the matcher tell a back-to-back's two games apart.
+    "KXNBAGAME": SeriesConfig("nba", "NBA", 2, False, occurrence_lead=timedelta(hours=3)),
     # Soccer is three-way. Code-ready via the unified normalizer, but kept out of
     # active KALSHI_SERIES_TICKERS until a soccer team registry + a live payload
     # verification pass land (its draw-market detection is unverified).
@@ -148,7 +154,8 @@ class KalshiEventMetadata:
     league: str
     home_team: str  # canonical name (PROVISIONAL home/away — see home_away_source)
     away_team: str
-    scheduled_start: datetime  # date-only for now (midnight UTC); time refined in Phase 2
+    # Exact tip if the series has occurrence_lead, else midnight UTC of the ticker date.
+    scheduled_start: datetime
     outcome_markets: dict[str, dict] = field(default_factory=dict)  # 'home'|'away'|'draw' -> market
     home_away_source: str = "kalshi_provisional"
 
@@ -176,6 +183,47 @@ def _parse_event_ticker(event_ticker: str) -> tuple[datetime, str] | None:
     return game_date, matchup
 
 
+def _derive_start(
+    markets: list[dict], cfg: SeriesConfig, game_date: datetime, event_ticker: str
+) -> datetime:
+    """The event's start: exact tip from ``occurrence_datetime`` where the series
+    declares it, else the ticker date.
+
+    The derived time must land within the ticker's US calendar date, allowing for
+    UTC (a 10:30pm ET tip is 02:30Z the next day; a game abroad can be hours
+    BEFORE midnight UTC). Outside that, the field's meaning has changed under us,
+    and trusting it would mis-match games — so fall back to the date, loudly.
+    """
+    if cfg.occurrence_lead is None:
+        return game_date
+    raw = next((v for m in markets if (v := m.get("occurrence_datetime"))), None)
+    occurred = _parse_iso_utc(raw)
+    if occurred is None:
+        logger.warning(
+            "Event %s: no usable occurrence_datetime; using the ticker date", event_ticker
+        )
+        return game_date
+    tip = occurred - cfg.occurrence_lead
+    if not game_date - timedelta(hours=12) <= tip <= game_date + timedelta(hours=36):
+        logger.warning(
+            "Event %s: occurrence_datetime %s implies tip %s, outside the ticker date %s; "
+            "using the ticker date",
+            event_ticker, raw, tip.isoformat(), game_date.date(),
+        )
+        return game_date
+    return tip
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def _market_suffix(market: dict) -> str:
     return (market.get("ticker") or "").rsplit("-", 1)[-1]
 
@@ -199,7 +247,7 @@ def extract_event_metadata(event: dict, cfg: SeriesConfig) -> KalshiEventMetadat
     draw_market: dict | None = None
     for market in event.get("markets") or []:
         suffix = _market_suffix(market)
-        team_uuid = (market.get("custom_strike") or {}).get("football_team")
+        team_uuid = kalshi_strike_uuid(cfg.league, market)
         team = resolve_team(cfg.league, suffix, team_uuid)
         if team is not None:
             team_markets[team.code] = market
@@ -241,7 +289,7 @@ def extract_event_metadata(event: dict, cfg: SeriesConfig) -> KalshiEventMetadat
         league=cfg.league,
         home_team=home_team.name,
         away_team=away_team.name,
-        scheduled_start=game_date,
+        scheduled_start=_derive_start(event.get("markets") or [], cfg, game_date, event_ticker),
         outcome_markets=outcome_markets,
     )
 
@@ -328,7 +376,9 @@ def upsert_event(session, meta: KalshiEventMetadata) -> uuid_mod.UUID:
         return _insert_kalshi_event(session, meta)  # known ticker: refresh via upsert
 
     key = EventKey(meta.sport, meta.home_team, meta.away_team, meta.scheduled_start)
-    event_id, status = find_event_by_match(session, key)
+    event_id, status = find_event_by_match(
+        session, key, claimed=("kalshi", meta.kalshi_event_ticker)
+    )
     if event_id is not None:
         logger.info(
             "Kalshi event %s merged into existing event %s (created by another source)",
