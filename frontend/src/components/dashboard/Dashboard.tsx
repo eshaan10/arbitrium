@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchActivity,
@@ -10,6 +10,7 @@ import {
   queryKeys,
 } from "@/lib/api";
 import { groupEvents, type Group } from "@/lib/grouping";
+import { capFinals } from "@/lib/finals";
 import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
 import { browseAllHref, sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
@@ -27,6 +28,7 @@ import { shouldFold, splitFoldable } from "@/lib/fold";
 import { noEdgeCopy } from "@/lib/copy";
 import { EventCard } from "@/components/event/EventCard";
 import { EventRow } from "@/components/event/EventRow";
+import { FinalRow } from "@/components/event/FinalRow";
 import { EmptyState } from "@/components/primitives";
 import { type View } from "./Controls";
 import { Toolbar } from "./Toolbar";
@@ -35,8 +37,8 @@ import { SinceLastVisit } from "./SinceLastVisit";
 import { LandingExplainer } from "./LandingExplainer";
 import { PastGames } from "./PastGames";
 import { UnscoreableGroup } from "./UnscoreableGroup";
-import type { Mode } from "@/lib/mode";
-import type { Divergence, DivergencesResponse } from "@/lib/types";
+import { gameState, isLive } from "@/lib/liveState";
+import type { Divergence, DivergencesResponse, FinalGame } from "@/lib/types";
 
 /**
  * Page rhythm, deliberately uneven:
@@ -54,7 +56,6 @@ export function Dashboard({
   initialData,
   initialAllData,
   sport,
-  mode,
   view,
   serverNow,
 }: {
@@ -62,7 +63,6 @@ export function Dashboard({
   /** The unfiltered feed, for sport-tab availability; null on the All tab. */
   initialAllData: DivergencesResponse | null;
   sport: string | null;
-  mode: Mode;
   view: View;
   /** The server's clock, used for the first paint so grouping cannot mismatch. */
   serverNow: number;
@@ -74,6 +74,8 @@ export function Dashboard({
   const [openRow, setOpenRow] = useState<string | null>(null);
   // "Show N more" in Today, which expands in place until the page is left.
   const [todayExpanded, setTodayExpanded] = useState(false);
+  // "Show N more" under the finished games, likewise.
+  const [finalsExpanded, setFinalsExpanded] = useState(false);
 
   const {
     followedTeams,
@@ -90,11 +92,29 @@ export function Dashboard({
   } = useFavoriteGames();
   const { record } = useRecentlyViewed();
 
+  // Mode toggle was dropped. Clear any stale URL-only state we may have
+  // written to localStorage in a prior build. No key is known to exist today.
+  useEffect(() => {
+    try {
+      localStorage.removeItem("arbitrium:mode");
+    } catch {}
+  }, []);
+
   const query = { sport: sport ?? undefined, limit: LIST_LIMIT };
   const { data, error, isFetching, dataUpdatedAt } = useQuery({
     queryKey: queryKeys.divergences(query),
     queryFn: () => fetchDivergences(query),
     initialData: initialData ?? undefined,
+    // 30s while the tab is visible AND at least one game is live; otherwise
+    // the provider's 60s default stands. Live games are what make a stale card
+    // a wrong card.
+    refetchInterval: (q) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return 60_000;
+      }
+      const events = (q.state.data as DivergencesResponse | undefined)?.divergences ?? [];
+      return events.some((d) => gameState(d) === "live") ? 30_000 : 60_000;
+    },
   });
 
   // The UNFILTERED feed, for the sport tabs' availability and counts. On the
@@ -118,6 +138,7 @@ export function Dashboard({
   });
 
   const all = useMemo(() => data?.divergences ?? [], [data]);
+  const finals = useMemo(() => data?.recent_finals ?? [], [data]);
   const moves = useMemo(() => netMovesByEvent(activity), [activity]);
   usePriceFlash(all, dataUpdatedAt);
 
@@ -148,13 +169,13 @@ export function Dashboard({
   // and neither list implies the other.
   const followedSet = new Set(followedTeams);
   const gameSet = new Set(pinnedIds);
-  const hasFollowedTeam = (d: Divergence) =>
+  const hasFollowedTeam = (d: Pick<Divergence, "home_team" | "away_team">) =>
     followedSet.has(d.home_team ?? "") || followedSet.has(d.away_team ?? "");
-  const isPinnedGame = (d: Divergence) => gameSet.has(d.event_id);
+  const isPinnedGame = (d: Pick<Divergence, "event_id">) => gameSet.has(d.event_id);
 
   const counts: Record<View, number> = {
     all: all.length,
-    recommended: all.filter((d) => d.recommendation).length,
+    recommended: all.filter((d) => d.recommendation && !isLive(d)).length,
     arbitrage: all.filter((d) => d.is_arbitrage).length,
     unscoreable: all.filter((d) => d.status !== "scored").length,
     "my-teams": all.filter(hasFollowedTeam).length,
@@ -168,7 +189,7 @@ export function Dashboard({
   });
 
   const matchesView = (d: Divergence) => {
-    if (view === "recommended") return d.recommendation != null;
+    if (view === "recommended") return d.recommendation != null && !isLive(d);
     if (view === "arbitrage") return d.is_arbitrage;
     if (view === "unscoreable") return d.status !== "scored";
     if (view === "my-teams") return hasFollowedTeam(d);
@@ -181,6 +202,18 @@ export function Dashboard({
   const visible = all.filter(
     (d) => matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
   );
+  // Finished games carry no edge, so they belong only to the views that are
+  // about whole games rather than prices.
+  const matchesFinalView = (f: FinalGame) => {
+    if (view === "all") return true;
+    if (view === "my-teams") return hasFollowedTeam(f);
+    if (view === "my-games") return isPinnedGame(f);
+    return false;
+  };
+  const visibleFinals = finals.filter(
+    (f) => matchesFinalView(f) && matchesTeamQuery(search, f.home_team, f.away_team),
+  );
+
   // One scale for every meter on the page, so two rows' meters compare
   // honestly even when they sit in different sections.
   const scale = signalScale(visible);
@@ -192,6 +225,7 @@ export function Dashboard({
     visible,
     isClient ? dataUpdatedAt || serverNow : serverNow,
   );
+  const finalsShown = capFinals(visibleFinals, finalsExpanded);
 
   const foldUnscoreable = shouldFold(view, search);
 
@@ -222,6 +256,16 @@ export function Dashboard({
       arb: ev.is_arbitrage,
     });
 
+  const recordFinalOpen = (f: FinalGame) =>
+    record({
+      id: f.event_id,
+      home: f.home_team,
+      away: f.away_team,
+      sport: f.sport,
+      rec: null,
+      arb: false,
+    });
+
   return (
     <div className="space-y-10">
       <LandingExplainer />
@@ -239,15 +283,14 @@ export function Dashboard({
           personalReady={followReady && gamesReady}
           followedTeamCount={followedTeams.length}
           favoriteGameCount={pinnedIds.length}
-          mode={mode}
           search={search}
           onSearch={setSearch}
-          resultCount={visible.length}
+          resultCount={visible.length + visibleFinals.length}
           stamp={stamp}
         />
 
         <div className="pt-6">
-          {groups.length === 0 ? (
+          {groups.length === 0 && visibleFinals.length === 0 ? (
             <EmptyState
               title={view === "recommended" && !search ? noEdge.title : "Nothing here right now"}
             >
@@ -262,7 +305,7 @@ export function Dashboard({
                       it. */}
                   {noEdge.body}{" "}
                   <Link
-                    href={browseAllHref(sport, mode)}
+                    href={browseAllHref(sport)}
                     className="tap text-signal-600 underline-offset-2 hover:underline"
                   >
                     Browse all {counts.all} events →
@@ -300,7 +343,6 @@ export function Dashboard({
                           key={d.event_id}
                           d={d}
                           minBooks={minBooks}
-                          mode={mode}
                           isFavoriteGame={isFavoriteGame(d.event_id)}
                           onToggleFavoriteGame={(id) => toggleFavoriteGame(id, recSignature(d))}
                           move={moves.get(d.event_id)}
@@ -322,7 +364,6 @@ export function Dashboard({
                           key={d.event_id}
                           d={d}
                           minBooks={minBooks}
-                          mode={mode}
                           isFollowed={isFollowed}
                           onToggleFollow={toggleFollow}
                           isFavoriteGame={isFavoriteGame(d.event_id)}
@@ -350,6 +391,42 @@ export function Dashboard({
                 </section>
                 );
               })}
+
+              {/* Finished games, after everything still to play: the page leads
+                  with what can be acted on. */}
+              {visibleFinals.length > 0 ? (
+                <section>
+                  <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
+                    Past
+                    <span className="tabular text-micro font-normal text-faint">
+                      {visibleFinals.length}
+                    </span>
+                  </h2>
+                  <div className="flex flex-col gap-2">
+                    {finalsShown.shown.map((f) => (
+                      <FinalRow
+                        key={f.event_id}
+                        f={f}
+                        open={openRow === f.event_id}
+                        onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                        onOpen={recordFinalOpen}
+                      />
+                    ))}
+                  </div>
+                  {finalsShown.more > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={finalsExpanded}
+                      onClick={() => setFinalsExpanded((v) => !v)}
+                      className="tap mt-3 rounded-sm px-1 text-[13px] font-medium text-signal-600 underline-offset-4 hover:underline"
+                    >
+                      {finalsExpanded
+                        ? "Show fewer"
+                        : `Show ${finalsShown.more} more ${finalsShown.more === 1 ? "game" : "games"}`}
+                    </button>
+                  ) : null}
+                </section>
+              ) : null}
             </div>
           )}
 

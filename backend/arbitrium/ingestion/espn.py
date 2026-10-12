@@ -31,7 +31,9 @@ every game that day. Calls are free, so breadth costs nothing.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import httpx
 
@@ -194,6 +196,336 @@ def _parse_espn_date(value: str | None) -> datetime | None:
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+# Preseason exhibitions schedule a partner team against a non-partner (e.g.
+# Trail Blazers vs London Lions), and ESPN returns that card on every poll.
+# The team registry correctly fails to resolve the exhibition side; without
+# this a legitimate "we skipped a real game" warning gets drowned in a tick-
+# cadence repeat of the exhibition every 30s. Dedup is per process.
+_warned_unresolved: set[str] = set()
+
+
+LIVE_STATUS_SCHEDULED = "scheduled"
+LIVE_STATUS_IN_PROGRESS = "in_progress"
+LIVE_STATUS_HALFTIME = "halftime"
+LIVE_STATUS_FINAL = "final"
+LIVE_STATUS_POSTPONED = "postponed"
+
+LIVE_STATUSES = frozenset({
+    LIVE_STATUS_SCHEDULED,
+    LIVE_STATUS_IN_PROGRESS,
+    LIVE_STATUS_HALFTIME,
+    LIVE_STATUS_FINAL,
+    LIVE_STATUS_POSTPONED,
+})
+
+
+@dataclass(frozen=True)
+class LiveState:
+    """Parsed live state for one ESPN scoreboard event.
+
+    All fields except ``status``, ``home_team`` and ``away_team`` are optional:
+    scheduled games have no clock, non-NFL has no down/distance, a pre-game
+    poll has no last play. The poller writes whatever is present and leaves
+    the rest NULL.
+    """
+
+    sport: str
+    espn_event_id: str
+    home_team: str
+    away_team: str
+    commence_time: datetime | None
+    status: str
+    period: int | None = None
+    clock: str | None = None
+    detail: str | None = None
+    home_score: int | None = None
+    away_score: int | None = None
+    home_record: str | None = None
+    away_record: str | None = None
+    venue: str | None = None
+    broadcast: str | None = None
+    possession_side: str | None = None
+    down_distance: str | None = None
+    last_play: str | None = None
+    linescore: dict[str, list[int]] | None = None
+
+
+# ESPN status.type.name values that mean "not actually in play". The scoreboard
+# distinguishes STATUS_HALFTIME (own value), STATUS_END_PERIOD, delays, and so
+# on; only halftime gets its own ``halftime`` status here. Everything else that
+# ESPN groups under ``state == 'in'`` reads as in_progress.
+_HALFTIME_NAMES = frozenset({"STATUS_HALFTIME"})
+_POSTPONED_NAMES = frozenset({"STATUS_POSTPONED", "STATUS_CANCELED"})
+
+
+def _map_status(status_type: dict) -> str | None:
+    """ESPN status -> our enum. Returns None when ESPN says nothing useful."""
+    name = (status_type.get("name") or "").upper()
+    state = (status_type.get("state") or "").lower()
+    if name in _POSTPONED_NAMES:
+        return LIVE_STATUS_POSTPONED
+    if state == "pre":
+        return LIVE_STATUS_SCHEDULED
+    if state == "in":
+        return LIVE_STATUS_HALFTIME if name in _HALFTIME_NAMES else LIVE_STATUS_IN_PROGRESS
+    if state == "post":
+        return LIVE_STATUS_FINAL
+    return None
+
+
+def _period_label(sport: str, period: int | None) -> str:
+    """Sport-aware period label used in the detail string.
+
+    NFL periods 1-4 are Q1..Q4; period >= 5 is OT (not labelled "5OT"). NBA
+    periods 1-4 are Q1..Q4; period 5 is OT, 6 is 2OT, etc. NHL is P1..P3 and
+    then OT / shootout, but ESPN already shortDetail-labels NHL cleanly, so
+    the fallback below is only used when shortDetail is missing.
+    """
+    if period is None:
+        return ""
+    if sport == "nhl":
+        return f"P{period}" if period <= 3 else "OT"
+    if sport == "nba":
+        if period <= 4:
+            return f"Q{period}"
+        return "OT" if period == 5 else f"{period - 4}OT"
+    # nfl + anything else
+    if period <= 4:
+        return f"Q{period}"
+    return "OT"
+
+
+def _build_detail(sport: str, status: str, status_type: dict, period: int | None,
+                  clock: str | None) -> str | None:
+    """Short string suitable for the collapsed-row subline (e.g. "Q3 4:12")."""
+    short = status_type.get("shortDetail") or status_type.get("detail")
+    if status == LIVE_STATUS_HALFTIME:
+        return "Halftime"
+    if status == LIVE_STATUS_FINAL:
+        return short or "Final"
+    if status == LIVE_STATUS_POSTPONED:
+        return short or "Postponed"
+    if status == LIVE_STATUS_IN_PROGRESS:
+        label = _period_label(sport, period)
+        if label and clock:
+            return f"{label} {clock}"
+        return short
+    if status == LIVE_STATUS_SCHEDULED:
+        return short
+    return short
+
+
+def _linescore(competitor: dict) -> list[int]:
+    """Per-period scores for one competitor. Non-numeric periods become 0."""
+    out: list[int] = []
+    for row in competitor.get("linescores") or []:
+        val = row.get("value") if isinstance(row, dict) else row
+        try:
+            out.append(int(val))
+        except (TypeError, ValueError):
+            out.append(0)
+    return out
+
+
+def _possession_side(situation: dict, competitors: list[dict]) -> str | None:
+    """Map ESPN ``situation.possession`` (a competitor id) to 'home'/'away'."""
+    pos_id = situation.get("possession")
+    if not pos_id:
+        return None
+    for c in competitors:
+        if str(c.get("id") or (c.get("team") or {}).get("id")) == str(pos_id):
+            side = c.get("homeAway")
+            return side if side in ("home", "away") else None
+    return None
+
+
+def _broadcast(comp: dict) -> str | None:
+    """Readable broadcast name from the slate, or None if not announced."""
+    for b in comp.get("broadcasts") or []:
+        names = b.get("names") if isinstance(b, dict) else None
+        if names:
+            return names[0]
+    geo = (comp.get("geoBroadcasts") or [])
+    for b in geo:
+        media = (b.get("media") or {}) if isinstance(b, dict) else {}
+        name = media.get("shortName") or media.get("name")
+        if name:
+            return name
+    return None
+
+
+def extract_live_state(payload: dict, sport: str) -> LiveState | None:
+    """Build a :class:`LiveState` from one ESPN scoreboard event. None => skip."""
+    comps = payload.get("competitions") or []
+    if not comps:
+        return None
+    comp = comps[0]
+
+    status_block = comp.get("status") or {}
+    status_type = status_block.get("type") or {}
+    status = _map_status(status_type)
+    if status is None:
+        logger.warning(
+            "ESPN event %s: unmapped status state=%r name=%r; skipping",
+            payload.get("id"), status_type.get("state"), status_type.get("name"),
+        )
+        return None
+
+    competitors = comp.get("competitors") or []
+    sides: dict[str, dict] = {}
+    for c in competitors:
+        side = c.get("homeAway")
+        if side in ("home", "away"):
+            sides[side] = c
+    if set(sides) != {"home", "away"}:
+        logger.warning("ESPN event %s: missing home/away competitors; skipping",
+                       payload.get("id"))
+        return None
+
+    league = ESPN_LEAGUE.get(sport, sport.upper())
+    home = _resolve_espn_team(league, sides["home"].get("team") or {})
+    away = _resolve_espn_team(league, sides["away"].get("team") or {})
+    if home is None or away is None:
+        key = f"{sport}:{payload.get('id') or ''}"
+        if key not in _warned_unresolved:
+            _warned_unresolved.add(key)
+            logger.warning(
+                "ESPN event %s: unresolved team(s) home=%r (id %s) away=%r (id %s); "
+                "skipping live state (registry gap)",
+                payload.get("id"),
+                (sides["home"].get("team") or {}).get("displayName"),
+                (sides["home"].get("team") or {}).get("id"),
+                (sides["away"].get("team") or {}).get("displayName"),
+                (sides["away"].get("team") or {}).get("id"),
+            )
+        return None
+
+    # Scores are present for in_progress and final; absent for scheduled.
+    home_score = coerce_score(sides["home"].get("score"))
+    away_score = coerce_score(sides["away"].get("score"))
+    if status == LIVE_STATUS_SCHEDULED:
+        home_score = None
+        away_score = None
+
+    period_raw = status_block.get("period")
+    try:
+        period = int(period_raw) if period_raw is not None else None
+    except (TypeError, ValueError):
+        period = None
+    if status == LIVE_STATUS_SCHEDULED:
+        period = None
+    clock = status_block.get("displayClock") or None
+    if status in (LIVE_STATUS_SCHEDULED, LIVE_STATUS_HALFTIME, LIVE_STATUS_POSTPONED):
+        clock = None
+
+    detail = _build_detail(sport, status, status_type, period, clock)
+
+    situation = comp.get("situation") or {}
+    possession_side = None
+    down_distance = None
+    last_play = None
+    if sport == "nfl":
+        possession_side = _possession_side(situation, competitors)
+        down_distance = (
+            situation.get("shortDownDistanceText")
+            or situation.get("downDistanceText")
+            or None
+        )
+        last_play_block = situation.get("lastPlay") or {}
+        if isinstance(last_play_block, dict):
+            last_play = last_play_block.get("text") or None
+
+    home_line = _linescore(sides["home"])
+    away_line = _linescore(sides["away"])
+    linescore: dict[str, list[int]] | None = None
+    if home_line or away_line:
+        linescore = {"home": home_line, "away": away_line}
+
+    def _record(c: dict) -> str | None:
+        for rec in c.get("records") or []:
+            if isinstance(rec, dict) and rec.get("summary"):
+                return rec["summary"]
+        return None
+
+    venue_name: str | None = None
+    venue_block = comp.get("venue") or {}
+    if isinstance(venue_block, dict):
+        venue_name = venue_block.get("fullName") or venue_block.get("displayName") or None
+
+    return LiveState(
+        sport=sport,
+        espn_event_id=str(payload.get("id") or ""),
+        home_team=home.name,
+        away_team=away.name,
+        commence_time=_parse_espn_date(payload.get("date")),
+        status=status,
+        period=period,
+        clock=clock,
+        detail=detail,
+        home_score=home_score,
+        away_score=away_score,
+        home_record=_record(sides["home"]),
+        away_record=_record(sides["away"]),
+        venue=venue_name,
+        broadcast=_broadcast(comp),
+        possession_side=possession_side,
+        down_distance=down_distance,
+        last_play=last_play,
+        linescore=linescore,
+    )
+
+
+def fetch_live_states(
+    sport: str, *, now: datetime | None = None, client: EspnClient | None = None,
+) -> list[LiveState]:
+    """Fetch the sport's live scoreboard. Returns one state per ESPN event.
+
+    Sweeps yesterday and today (ESPN buckets by US calendar date while we store
+    UTC), de-duplicating by ESPN event id — a late-evening game appears under
+    both buckets and we want each event parsed once.
+    """
+    return _fetch_states(sport, range(-1, 1), now=now, client=client)
+
+
+def fetch_upcoming_states(
+    sport: str, *, days: int, now: datetime | None = None,
+    client: EspnClient | None = None,
+) -> list[LiveState]:
+    """Fetch yesterday through ``days`` ahead: the slate the live sweep never
+    reaches, plus yesterday for finals of games that left the fast poll.
+
+    One call per date. ESPN's ``dates=START-END`` range form answers 400
+    ("Failed to get events endpoint") for every range tried, and the month form
+    is capped at 100 events, so neither covers a week reliably. Calls are free.
+    """
+    return _fetch_states(sport, range(-1, days + 1), now=now, client=client)
+
+
+def _fetch_states(
+    sport: str, offsets: range, *, now: datetime | None, client: EspnClient | None,
+) -> list[LiveState]:
+    moment = now or datetime.now(timezone.utc)
+    own = client is None
+    client = client or EspnClient()
+    seen_ids: set[str] = set()
+    out: list[LiveState] = []
+    try:
+        for date in sorted({(moment + timedelta(days=d)).strftime("%Y%m%d")
+                            for d in offsets}):
+            for payload in client.get_scoreboard(sport, date):
+                state = extract_live_state(payload, sport)
+                if state is None:
+                    continue
+                if state.espn_event_id and state.espn_event_id in seen_ids:
+                    continue
+                seen_ids.add(state.espn_event_id)
+                out.append(state)
+    finally:
+        if own:
+            client.close()
+    return out
 
 
 def fetch_results(

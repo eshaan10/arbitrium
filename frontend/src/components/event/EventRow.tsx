@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { BetControls } from "@/components/recommendation/BetControls";
-import { AdvancedMetrics } from "@/components/advanced/AdvancedMetrics";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import { TeamLogo } from "./Matchup";
 import { SignalMeter } from "./Signal";
@@ -15,7 +14,8 @@ import { cents, edgeCents, fairValueCents } from "@/lib/format";
 import { matchupVisuals, teamVisual } from "@/lib/teams";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence, Recommendation } from "@/lib/types";
-import type { Mode } from "@/lib/mode";
+import { gameState, hasScoreboard, isLive } from "@/lib/liveState";
+import { Scoreboard } from "./Scoreboard";
 
 /**
  * One event in the Rows density: the same facts as EventCard, one line tall.
@@ -39,7 +39,6 @@ import type { Mode } from "@/lib/mode";
 type RowProps = {
   d: Divergence;
   minBooks: number;
-  mode: Mode;
   isFavoriteGame: boolean;
   onToggleFavoriteGame: (eventId: string) => void;
   move?: NetMove;
@@ -58,7 +57,15 @@ export function EventRow({
   return <RecommendationRow {...props} r={r} open={open} onToggle={onToggle} />;
 }
 
-function Logos({ d, size, cutout }: { d: Divergence; size: number; cutout: string }) {
+export function Logos({
+  d,
+  size,
+  cutout,
+}: {
+  d: Pick<Divergence, "home_team" | "away_team">;
+  size: number;
+  cutout: string;
+}) {
   const { home, away, homeAccent, awayAccent } = matchupVisuals(d.home_team, d.away_team);
   return (
     <span aria-hidden className="flex shrink-0 items-center">
@@ -70,7 +77,7 @@ function Logos({ d, size, cutout }: { d: Divergence; size: number; cutout: strin
   );
 }
 
-function matchupText(d: Divergence): string {
+export function matchupText(d: Pick<Divergence, "home_team" | "away_team">): string {
   const away = teamVisual(d.away_team)?.short ?? d.away_team;
   const home = teamVisual(d.home_team)?.short ?? d.home_team;
   return `${away} @ ${home}`;
@@ -107,26 +114,87 @@ function Pill({ r, className = "" }: { r: Recommendation; className?: string }) 
   );
 }
 
-function Books({ r, className = "" }: { r: Recommendation; className?: string }) {
+function Books({
+  r,
+  className = "",
+  live = false,
+}: {
+  r: Recommendation;
+  className?: string;
+  live?: boolean;
+}) {
   return (
-    <span className={`tabular whitespace-nowrap text-[13px] text-[var(--row-muted)] ${className}`}>
+    <span
+      className={`tabular whitespace-nowrap text-[13px] ${
+        live ? "text-faint opacity-60" : "text-[var(--row-muted)]"
+      } ${className}`}
+      title={live ? "Pregame books; the game is in progress" : undefined}
+    >
       Books {fairValueCents(r.fair_value, r.price)}
     </span>
   );
 }
 
-function Edge({ r }: { r: Recommendation }) {
+/**
+ * One tag for both greyed numbers once the game is on. Spelling "Pregame" into
+ * each label made them too wide for their slots, and they ran into each other.
+ */
+export function PregameTag() {
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded-sm border border-border px-1 text-micro text-faint">
+      pregame
+    </span>
+  );
+}
+
+function Edge({ r, live = false }: { r: Recommendation; live?: boolean }) {
   return (
     <span
-      title="Sportsbooks' price minus the Kalshi price"
-      className="tabular shrink-0 whitespace-nowrap rounded-lg bg-raised px-2 py-1 text-micro font-semibold text-signal"
+      title={
+        live
+          ? "Pregame edge; the game is in progress"
+          : "Sportsbooks' price minus the Kalshi price"
+      }
+      className={`tabular shrink-0 whitespace-nowrap rounded-lg px-2 py-1 text-micro font-semibold ${
+        live ? "bg-raised text-faint opacity-60" : "bg-raised text-signal"
+      }`}
     >
       {edgeCents(r.fair_value, r.price)}
     </span>
   );
 }
 
-function Chevron({ open }: { open: boolean }) {
+function LivePulse() {
+  return (
+    <span
+      aria-hidden
+      className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--live)] align-middle motion-safe:animate-pulse"
+    />
+  );
+}
+
+function StatusLine({
+  d,
+  separator = ", ",
+}: {
+  d: Divergence;
+  separator?: string;
+}) {
+  const state = gameState(d);
+  if (state === "live") {
+    return (
+      <span className="text-[var(--live)]">
+        <LivePulse />
+        LIVE
+      </span>
+    );
+  }
+  if (state === "final") return <>Final</>;
+  if (state === "started") return <>Started</>;
+  return <KickoffTime iso={d.scheduled_start} separator={separator} />;
+}
+
+export function Chevron({ open }: { open: boolean }) {
   return (
     <svg
       aria-hidden
@@ -146,7 +214,6 @@ function RecommendationRow({
   d,
   r,
   minBooks,
-  mode,
   isFavoriteGame,
   onToggleFavoriteGame,
   move,
@@ -162,6 +229,7 @@ function RecommendationRow({
   const books = d.n_books ?? 0;
   const conf = confidence(d, minBooks);
   const panelId = `row-panel-${d.event_id}`;
+  const live = isLive(d);
 
   return (
     <article
@@ -190,15 +258,16 @@ function RecommendationRow({
           <span className="w-[150px] min-w-0 shrink-0 lg:w-[200px]">
             <span className="block truncate text-[14px] font-medium text-text">{matchupText(d)}</span>
             <span className="block truncate text-micro text-faint">
-              <KickoffTime iso={d.scheduled_start} separator=", " />
+              <StatusLine d={d} />
             </span>
           </span>
           <span className="display-medium min-w-0 flex-1 truncate text-[17px] text-text">
             {headline}
           </span>
           <Pill r={r} className="px-3.5 py-1.5 text-[13px]" />
-          <Books r={r} className="hidden w-[90px] text-right lg:block" />
-          <Edge r={r} />
+          {live ? <PregameTag /> : null}
+          <Books r={r} className="hidden w-[90px] text-right lg:block" live={live} />
+          <Edge r={r} live={live} />
           {signalScale != null ? <SignalMeter d={d} scale={signalScale} /> : null}
           <Chevron open={open} />
         </div>
@@ -217,7 +286,7 @@ function RecommendationRow({
           <span className="flex shrink-0 flex-col items-end">
             <Pill r={r} className="px-2.5 py-1 text-micro" />
             <span className="mt-1 whitespace-nowrap text-micro text-faint">
-              <KickoffTime iso={d.scheduled_start} separator=", " />
+              <StatusLine d={d} />
             </span>
             {signalScale != null ? (
               <SignalMeter d={d} scale={signalScale} className="mt-1" />
@@ -236,11 +305,33 @@ function RecommendationRow({
             <span className="relative z-20 md:hidden">
               <Star d={d} favorited={isFavoriteGame} onToggle={onToggleFavoriteGame} size="lg" />
             </span>
-            <Books r={r} />
+            {live ? <PregameTag /> : null}
+            <Books r={r} live={live} />
             <span className="md:hidden">
-              <Edge r={r} />
+              <Edge r={r} live={live} />
             </span>
           </div>
+
+          {live ? (
+            <p className="mb-3 text-micro text-muted">
+              Game in progress. Price reflects the current score.
+            </p>
+          ) : null}
+
+          {/* On a phone the scoreboard sits above the bet calculator; on
+              desktop it moves back into the right column with the stats. */}
+          {hasScoreboard(d) ? (
+            <div className="mb-4 md:hidden">
+              <Scoreboard
+                home_team={d.home_team}
+                away_team={d.away_team}
+                scheduled_start={d.scheduled_start}
+                sport={d.sport}
+                live={d.live}
+                pick_result={d.pick_result}
+              />
+            </div>
+          ) : null}
 
           <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-8">
             <div className="min-w-0">
@@ -248,11 +339,6 @@ function RecommendationRow({
             </div>
 
             <div className="flex min-w-0 flex-col gap-3">
-              <p className="text-[13px] leading-relaxed text-muted">
-                Pays $1 if {short} {yes ? "win" : "lose"}. Sportsbooks say{" "}
-                <span className="tabular text-dim">{fairValueCents(r.fair_value, r.price)}</span>{" "}
-                across {books} {books === 1 ? "sportsbook" : "sportsbooks"}.
-              </p>
               <span className="relative z-20 inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
                 <span>
                   Strength: <span className="font-medium text-text">{conf.label}</span>
@@ -266,7 +352,18 @@ function RecommendationRow({
                 ) : null}
                 {move ? <MoveChip move={move} /> : null}
               </span>
-              {mode === "advanced" ? <AdvancedMetrics d={d} /> : null}
+              {hasScoreboard(d) ? (
+                <div className="hidden md:block">
+                  <Scoreboard
+                    home_team={d.home_team}
+                    away_team={d.away_team}
+                    scheduled_start={d.scheduled_start}
+                    sport={d.sport}
+                    live={d.live}
+                    pick_result={d.pick_result}
+                  />
+                </div>
+              ) : null}
 
               <RowLinks d={d} kalshi={kalshi} onOpen={onOpen} className="mt-auto" />
             </div>
@@ -379,7 +476,7 @@ function QuietRow({
           <SignalMeter d={d} scale={signalScale} />
         ) : null}
         <span className="shrink-0 whitespace-nowrap text-micro text-faint">
-          <KickoffTime iso={d.scheduled_start} separator=", " />
+          <StatusLine d={d} />
         </span>
       </div>
 
@@ -393,7 +490,7 @@ function QuietRow({
         </span>
         <span className="flex shrink-0 flex-col items-end">
           <span className="whitespace-nowrap text-micro text-faint">
-            <KickoffTime iso={d.scheduled_start} separator=", " />
+            <StatusLine d={d} />
           </span>
           {scored && signalScale != null ? (
             <SignalMeter d={d} scale={signalScale} className="mt-1" />

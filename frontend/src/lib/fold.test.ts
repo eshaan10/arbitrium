@@ -34,6 +34,8 @@ function event(id: string, status: Divergence["status"]): Divergence {
     arbitrage: null,
     best_trade: null,
     outcomes: [],
+    live: null,
+    pick_result: null,
   };
 }
 

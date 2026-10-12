@@ -28,6 +28,8 @@ function event(overrides: Partial<Divergence> = {}): Divergence {
     arbitrage: null,
     best_trade: null,
     outcomes: [],
+    live: null,
+    pick_result: null,
     ...overrides,
   };
 }

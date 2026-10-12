@@ -1,4 +1,3 @@
-import type { Mode } from "./mode";
 import type { Divergence } from "./types";
 
 /** Sports we intend to cover; any other sport the feed returns still gets a tab. */
@@ -85,13 +84,12 @@ export function sportTabs({
  * The link out of an empty Recommended view: the All view of the SAME feed.
  *
  * It used to be a bare "/?view=all", which dropped the sport — from NBA it
- * promised "Browse all 37 events" and landed on all 65. It keeps the sport and
- * mode the way the view chips do, changing only the view.
+ * promised "Browse all 37 events" and landed on all 65. It keeps the sport
+ * the way the view chips do, changing only the view.
  */
-export function browseAllHref(sport: string | null, mode: Mode): string {
+export function browseAllHref(sport: string | null): string {
   const params = new URLSearchParams();
   if (sport) params.set("sport", sport);
-  if (mode === "advanced") params.set("mode", mode);
   params.set("view", "all");
   return `/?${params.toString()}`;
 }

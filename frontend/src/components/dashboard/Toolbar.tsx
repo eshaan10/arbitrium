@@ -1,10 +1,9 @@
 "use client";
 
-import { ModeToggle, SportTabs, ViewFilter, type View } from "./Controls";
+import { SportTabs, ViewFilter, type View } from "./Controls";
 import { SearchBar } from "./SearchBar";
 import { RecentlyViewed } from "./RecentlyViewed";
 import { DensityToggle } from "./DensityToggle";
-import type { Mode } from "@/lib/mode";
 import type { SportTab } from "@/lib/sports";
 
 /**
@@ -28,7 +27,6 @@ export function Toolbar({
   personalReady,
   followedTeamCount,
   favoriteGameCount,
-  mode,
   search,
   onSearch,
   resultCount,
@@ -41,7 +39,6 @@ export function Toolbar({
   personalReady: boolean;
   followedTeamCount: number;
   favoriteGameCount: number;
-  mode: Mode;
   search: string;
   onSearch: (v: string) => void;
   resultCount: number;
@@ -67,7 +64,6 @@ export function Toolbar({
         <div className="order-1 flex items-center gap-2 sm:order-2 sm:ml-auto">
           <SearchBar value={search} onChange={onSearch} resultCount={resultCount} />
           <RecentlyViewed />
-          <ModeToggle mode={mode} />
           {/* The phone's density toggle shares the search line rather than
               taking the header: at 390px the wordmark, four nav links and the
               status dot already fill the header, and a line of its own here

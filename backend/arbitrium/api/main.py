@@ -23,7 +23,7 @@ from arbitrium.calibration.clv import summarise as summarise_clv
 from arbitrium.calibration.sample import assess, brier_score, wilson_interval
 from arbitrium.config import settings
 from arbitrium.db.engine import SessionLocal, engine
-from arbitrium.db.models import CalibrationHistory, Event, OddsSnapshot
+from arbitrium.db.models import CalibrationHistory, Event, EventLiveState, OddsSnapshot
 from arbitrium.divergence.engine import DivergenceStatus, compute_divergences
 from arbitrium.ingestion.governor import usage_report
 from arbitrium.ingestion.polling import missed_closes
@@ -225,6 +225,175 @@ def health(
     }
 
 
+def _live_payload(state: EventLiveState | None) -> dict | None:
+    """Serialize the latest live-scoreboard state for one event, or None.
+
+    One shape across scheduled / in-progress / final / postponed. The caller
+    tells those apart with ``status``; absent fields are left null rather than
+    omitted so the client type is stable.
+    """
+    if state is None:
+        return None
+    return {
+        "status": state.status,
+        "period": state.period,
+        "clock": state.clock,
+        "detail": state.detail,
+        "home_score": state.home_score,
+        "away_score": state.away_score,
+        "home_record": state.home_record,
+        "away_record": state.away_record,
+        "venue": state.venue,
+        "broadcast": state.broadcast,
+        "possession_side": state.possession_side,
+        "down_distance": state.down_distance,
+        "last_play": state.last_play,
+        "linescore": state.linescore,
+        "updated_at": state.updated_at.isoformat(),
+    }
+
+
+RECENT_FINALS_DAYS = 7
+
+
+def _final_result(
+    event: Event, live: EventLiveState | None
+) -> tuple[int, int, str | None] | None:
+    """(home_score, away_score, winner_team) once a game is over, else None.
+
+    The resolved event wins. Until resolution has run (it is periodic, so this
+    can be hours), ESPN's final scoreboard stands in, which is what lets a game
+    leave the live feed at the whistle rather than at the next resolution pass.
+    A tie has no winner.
+    """
+    if event.status == "final" and event.home_score is not None and event.away_score is not None:
+        return event.home_score, event.away_score, event.winner_team
+    if (live is not None and live.status == "final"
+            and live.home_score is not None and live.away_score is not None):
+        h, a = live.home_score, live.away_score
+        winner = event.home_team if h > a else event.away_team if a > h else None
+        return h, a, winner
+    return None
+
+
+def _pick_result(
+    event: Event, pick: CalibrationHistory | None, live: EventLiveState | None = None
+) -> str | None:
+    """"hit" | "miss" | null for a finished event that had a live recommendation.
+
+    Side-aware: a Buy No call on a team hits when that team LOSES. Null when the
+    game is not over, ended in a tie, had no live call, or the call's side was
+    never recorded (see migration 0012).
+    """
+    result = _final_result(event, live)
+    if pick is None or result is None or result[2] is None:
+        return None
+    if not pick.subject_team or pick.side not in ("yes", "no"):
+        return None
+    team_won = result[2] == pick.subject_team
+    return "hit" if team_won == (pick.side == "yes") else "miss"
+
+
+def _flagged_payload(pick: CalibrationHistory | None) -> dict | None:
+    """The call as it was flagged: the pre-game snapshot a settled game shows.
+
+    ``price`` is what the chosen contract cost on Kalshi at the time and
+    ``fair_value`` the sportsbook consensus for that same contract, the same
+    pair a live recommendation carries. Null without a side, since the call
+    cannot be stated without one.
+    """
+    if pick is None or not pick.subject_team or pick.side not in ("yes", "no"):
+        return None
+    return {
+        "team": pick.subject_team,
+        "side": pick.side,
+        "price": _r(float(pick.entry_prob)) if pick.entry_prob is not None else None,
+        "fair_value": _r(float(pick.predicted_prob)),
+        "flagged_at": pick.flagged_at.isoformat(),
+    }
+
+
+def _final_payload(
+    event: Event, live: EventLiveState | None, pick: CalibrationHistory | None
+) -> dict:
+    """One finished game for the dashboard's "In progress or past" section."""
+    home_score, away_score, winner = _final_result(event, live)  # type: ignore[misc]
+    return {
+        "event_id": str(event.id),
+        "sport": event.sport,
+        "league": event.league,
+        "home_team": event.home_team,
+        "away_team": event.away_team,
+        "scheduled_start": event.scheduled_start.isoformat(),
+        "home_score": home_score,
+        "away_score": away_score,
+        "winner_team": winner,
+        "kalshi_event_ticker": event.kalshi_event_ticker,
+        "live": _live_payload(live),
+        "pick_result": _pick_result(event, pick, live),
+        "flagged": _flagged_payload(pick),
+    }
+
+
+def _recent_finals(
+    db: Session, *, sport: str | None, now: datetime
+) -> list[dict]:
+    """Games that finished in the last ``RECENT_FINALS_DAYS``, newest first.
+
+    Finished means resolved, or final on ESPN's scoreboard and awaiting
+    resolution. Built from stored rows only: no Kalshi price (a settled market
+    sits at 0 or 100) and no Odds API call.
+    """
+    stmt = (
+        select(Event, EventLiveState)
+        .join(EventLiveState, EventLiveState.event_id == Event.id, isouter=True)
+        .where(
+            Event.scheduled_start >= now - timedelta(days=RECENT_FINALS_DAYS),
+            Event.scheduled_start <= now,
+            (Event.status == "final") | (EventLiveState.status == "final"),
+        )
+        .order_by(Event.scheduled_start.desc(), Event.id)
+    )
+    if sport:
+        stmt = stmt.where(Event.sport == sport)
+    rows = db.execute(stmt).all()
+    _, pick_by_id, _ = _live_and_pick_by_event(db, [e.id for e, _ in rows])
+    return [
+        _final_payload(e, live, pick_by_id.get(e.id))
+        for e, live in rows
+        if _final_result(e, live) is not None
+    ]
+
+
+def _live_and_pick_by_event(
+    db: Session, event_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, EventLiveState], dict[uuid.UUID, CalibrationHistory], dict[uuid.UUID, Event]]:
+    """Batch-fetch live state, live-origin pick, and the Event row for a set of ids."""
+    if not event_ids:
+        return {}, {}, {}
+    live_rows = db.execute(
+        select(EventLiveState).where(EventLiveState.event_id.in_(event_ids))
+    ).scalars().all()
+    live_by_id = {row.event_id: row for row in live_rows}
+    pick_rows = db.execute(
+        select(CalibrationHistory).where(
+            CalibrationHistory.event_id.in_(event_ids),
+            CalibrationHistory.origin == "live",
+        )
+    ).scalars().all()
+    pick_by_id: dict[uuid.UUID, CalibrationHistory] = {}
+    for row in pick_rows:
+        existing = pick_by_id.get(row.event_id)
+        if existing is None or (row.flagged_at and existing.flagged_at
+                                and row.flagged_at > existing.flagged_at):
+            pick_by_id[row.event_id] = row
+    event_rows = db.execute(
+        select(Event).where(Event.id.in_(event_ids))
+    ).scalars().all()
+    event_by_id = {row.id: row for row in event_rows}
+    return live_by_id, pick_by_id, event_by_id
+
+
 def _r(value: float | None, places: int = 6) -> float | None:
     """Round a probability for output.
 
@@ -236,7 +405,12 @@ def _r(value: float | None, places: int = 6) -> float | None:
     return None if value is None else round(value, places)
 
 
-def _divergence_payload(r) -> dict:
+def _divergence_payload(
+    r,
+    *,
+    live: EventLiveState | None = None,
+    pick_result: str | None = None,
+) -> dict:
     """Serialize one scored event.
 
     Shared by /divergences and /events/{id} so a deep link and a list row can
@@ -344,6 +518,8 @@ def _divergence_payload(r) -> dict:
             }
             for o in r.outcomes
         ],
+        "live": _live_payload(live),
+        "pick_result": pick_result,
     }
 
 
@@ -384,16 +560,42 @@ def divergences(
         db, sport=sport, status=status, min_divergence=min_divergence,
         tradeable_only=tradeable_only, limit=limit,
     )
+    live_by_id, pick_by_id, event_by_id = _live_and_pick_by_event(
+        db, [r.event_id for r in results]
+    )
+    # A game ESPN calls final but resolution has not reached yet is still
+    # "scheduled" in events. It moves to recent_finals now: its Kalshi market
+    # is settling toward 0 or 100, so a divergence computed from it is noise.
+    results = [
+        r for r in results
+        if (live_by_id.get(r.event_id) is None
+            or live_by_id[r.event_id].status != "final")
+    ]
     counts: dict[str, int] = {}
     for r in results:
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
+    # Finished games carry no divergence, so a filter on one excludes them all.
+    scored_filter = status is not None or min_divergence is not None or tradeable_only
     return {
         "min_consensus_books": settings.min_consensus_books,
         "count": len(results),
         "counts_by_status": counts,
         "tradeable_count": sum(1 for r in results if r.tradeable),
         "arbitrage_count": sum(1 for r in results if r.is_arbitrage),
-        "divergences": [_divergence_payload(r) for r in results],
+        "divergences": [
+            _divergence_payload(
+                r,
+                live=live_by_id.get(r.event_id),
+                pick_result=_pick_result(
+                    event_by_id[r.event_id], pick_by_id.get(r.event_id),
+                    live_by_id.get(r.event_id),
+                ) if r.event_id in event_by_id else None,
+            )
+            for r in results
+        ],
+        "recent_finals": [] if scored_filter else _recent_finals(
+            db, sport=sport, now=datetime.now(timezone.utc)
+        ),
     }
 
 
@@ -449,7 +651,13 @@ def event_history(
     }
 
 
-def _event_record(e: Event) -> dict:
+def _event_record(
+    e: Event,
+    *,
+    live: EventLiveState | None = None,
+    pick_result: str | None = None,
+    flagged: dict | None = None,
+) -> dict:
     """The stored facts about an event, and nothing derived.
 
     A winner only if one was resolved, scores only if they were collected, and
@@ -474,6 +682,9 @@ def _event_record(e: Event) -> dict:
         "unresolvable_reason": e.unresolvable_reason,
         "home_away_source": e.home_away_source,
         "kalshi_event_ticker": e.kalshi_event_ticker,
+        "live": _live_payload(live),
+        "pick_result": pick_result,
+        "flagged": flagged,
     }
 
 
@@ -550,7 +761,19 @@ def events_lookup(
         select(Event).where(Event.id.in_(wanted[:200]))
     ).scalars().all()
 
-    return {"count": len(rows), "events": [_event_record(e) for e in rows]}
+    live_by_id, pick_by_id, _ = _live_and_pick_by_event(db, [e.id for e in rows])
+    return {
+        "count": len(rows),
+        "events": [
+            _event_record(
+                e,
+                live=live_by_id.get(e.id),
+                pick_result=_pick_result(e, pick_by_id.get(e.id), live_by_id.get(e.id)),
+                flagged=_flagged_payload(pick_by_id.get(e.id)),
+            )
+            for e in rows
+        ],
+    }
 
 
 @app.get("/events/{event_id}")
@@ -579,11 +802,18 @@ def event_detail(
         raise HTTPException(status_code=404, detail="Unknown event")
 
     scored = compute_divergences(db, event_id=event_id, limit=1)
+    live_by_id, pick_by_id, _ = _live_and_pick_by_event(db, [ev.id])
+    live = live_by_id.get(ev.id)
+    pick_result = _pick_result(ev, pick_by_id.get(ev.id), live)
+    flagged = _flagged_payload(pick_by_id.get(ev.id))
 
     return {
         "min_consensus_books": settings.min_consensus_books,
-        "event": _event_record(ev),
-        "divergence": _divergence_payload(scored[0]) if scored else None,
+        "event": _event_record(ev, live=live, pick_result=pick_result, flagged=flagged),
+        "divergence": (
+            _divergence_payload(scored[0], live=live, pick_result=pick_result)
+            if scored else None
+        ),
         "closing": None if scored else _closing_prices(db, ev),
     }
 

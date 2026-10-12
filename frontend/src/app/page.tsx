@@ -1,6 +1,5 @@
 import { Dashboard } from "@/components/dashboard/Dashboard";
 import { fetchDivergences, LIST_LIMIT } from "@/lib/api";
-import { parseMode } from "@/lib/mode";
 import type { View } from "@/components/dashboard/Controls";
 import type { DivergencesResponse } from "@/lib/types";
 
@@ -56,7 +55,6 @@ export default async function Page({
       initialData={initialData}
       initialAllData={initialAllData}
       sport={sport}
-      mode={parseMode(sp.mode)}
       view={parseView(sp.view)}
       /* Reading the clock is impure by definition, and the whole point is to
          hand the client the exact instant this request rendered so date

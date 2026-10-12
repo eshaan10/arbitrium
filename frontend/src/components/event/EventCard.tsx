@@ -5,7 +5,6 @@ import { Badge } from "@/components/primitives";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import { Evidence } from "@/components/recommendation/Evidence";
 import { BetControls } from "@/components/recommendation/BetControls";
-import { AdvancedMetrics } from "@/components/advanced/AdvancedMetrics";
 import { Matchup } from "./Matchup";
 import { FavoriteGameButton } from "./FavoriteGameButton";
 import { MoveChip } from "./MoveChip";
@@ -17,7 +16,8 @@ import { KickoffTime } from "./KickoffTime";
 import { SignalMeter } from "./Signal";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence, Recommendation } from "@/lib/types";
-import type { Mode } from "@/lib/mode";
+import { gameState, hasScoreboard, isLive } from "@/lib/liveState";
+import { Scoreboard } from "./Scoreboard";
 
 /**
  * One event in the list.
@@ -34,7 +34,6 @@ import type { Mode } from "@/lib/mode";
 export function EventCard({
   d,
   minBooks,
-  mode,
   isFollowed,
   onToggleFollow,
   isFavoriteGame,
@@ -45,7 +44,6 @@ export function EventCard({
 }: {
   d: Divergence;
   minBooks: number;
-  mode: Mode;
   isFollowed: (team: string | null | undefined) => boolean;
   onToggleFollow: (team: string) => void;
   isFavoriteGame: boolean;
@@ -65,7 +63,6 @@ export function EventCard({
         d={d}
         r={r}
         minBooks={minBooks}
-        mode={mode}
         isFollowed={isFollowed}
         onToggleFollow={onToggleFollow}
         isFavoriteGame={isFavoriteGame}
@@ -137,9 +134,16 @@ export function EventCard({
         )}
       </div>
 
-      {mode === "advanced" ? (
+      {hasScoreboard(d) ? (
         <div className="mt-3">
-          <AdvancedMetrics d={d} />
+          <Scoreboard
+            home_team={d.home_team}
+            away_team={d.away_team}
+            scheduled_start={d.scheduled_start}
+            sport={d.sport}
+            live={d.live}
+            pick_result={d.pick_result}
+          />
         </div>
       ) : null}
 
@@ -168,17 +172,28 @@ function CardLink({ d, onOpen }: { d: Divergence; onOpen: (d: Divergence) => voi
 }
 
 function DateLine({ d, move }: { d: Divergence; move?: NetMove }) {
+  const state = gameState(d);
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-faint">
-      <span>
-        <KickoffTime iso={d.scheduled_start} separator=", " />
-        <span aria-hidden> · </span>
-        {/* Genuinely clock-dependent: the server computes "in 3 days" at
-            request time and the browser at hydration. Coarse enough that they
-            agree in practice, and harmless when they don't — unlike the
-            absolute time beside it, which is formatted deterministically. */}
-        <span suppressHydrationWarning>{timeToKickoffLong(d.scheduled_start)}</span>
-      </span>
+      {state === "live" ? (
+        <span className="inline-flex items-center gap-1 text-[var(--live)]">
+          <span
+            aria-hidden
+            className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--live)] motion-safe:animate-pulse"
+          />
+          LIVE
+        </span>
+      ) : state === "final" ? (
+        <span>Final</span>
+      ) : state === "started" ? (
+        <span>Started</span>
+      ) : (
+        <span>
+          <KickoffTime iso={d.scheduled_start} separator=", " />
+          <span aria-hidden> · </span>
+          <span suppressHydrationWarning>{timeToKickoffLong(d.scheduled_start)}</span>
+        </span>
+      )}
       {move ? <MoveChip move={move} /> : null}
     </div>
   );
@@ -265,7 +280,6 @@ function RecommendationCard({
   d,
   r,
   minBooks,
-  mode,
   isFollowed,
   onToggleFollow,
   isFavoriteGame,
@@ -278,7 +292,6 @@ function RecommendationCard({
   d: Divergence;
   r: Recommendation;
   minBooks: number;
-  mode: Mode;
   isFollowed: (team: string | null | undefined) => boolean;
   onToggleFollow: (team: string) => void;
   isFavoriteGame: boolean;
@@ -292,6 +305,7 @@ function RecommendationCard({
   const short = teamVisual(r.team)?.short ?? r.team;
   const conf = confidence(d, minBooks);
   const books = d.n_books ?? 0;
+  const live = isLive(d);
 
   return (
     <article
@@ -334,15 +348,28 @@ function RecommendationCard({
         <Strength bars={conf.bars} label={conf.label} />
         {signalScale != null ? <SignalLine d={d} scale={signalScale} /> : null}
       </div>
-      <p className="mt-2 text-[13px] leading-relaxed text-muted">
-        Pays $1 if they {yes ? "win" : "lose"}. Sportsbooks say{" "}
+      <p className={`mt-2 text-[13px] leading-relaxed ${live ? "text-faint" : "text-muted"}`}>
+        Pays $1 if they {yes ? "win" : "lose"}. {live ? "Pregame s" : "S"}portsbooks say{" "}
         <span className="tabular text-dim">{fairValueCents(r.fair_value, r.price)}</span> across{" "}
         {books} {books === 1 ? "sportsbook" : "sportsbooks"}.
       </p>
 
-      {mode === "advanced" ? (
+      {live ? (
+        <p className="mt-2 text-micro text-muted">
+          Game in progress. Price reflects the current score.
+        </p>
+      ) : null}
+
+      {hasScoreboard(d) ? (
         <div className="mt-3">
-          <AdvancedMetrics d={d} />
+          <Scoreboard
+            home_team={d.home_team}
+            away_team={d.away_team}
+            scheduled_start={d.scheduled_start}
+            sport={d.sport}
+            live={d.live}
+            pick_result={d.pick_result}
+          />
         </div>
       ) : null}
 

@@ -4,7 +4,7 @@ import type { Divergence } from "./types";
 export type GroupKey = "today" | "week" | "later" | "started";
 
 export const GROUP_LABELS: Record<GroupKey, string> = {
-  started: "In progress or past",
+  started: "In progress",
   today: "Today",
   week: "This week",
   later: "Later",

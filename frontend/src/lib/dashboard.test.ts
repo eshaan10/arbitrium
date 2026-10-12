@@ -31,6 +31,8 @@ function event(id: string, startIso: string): Divergence {
     arbitrage: null,
     best_trade: null,
     outcomes: [],
+    live: null,
+    pick_result: null,
   };
 }
 

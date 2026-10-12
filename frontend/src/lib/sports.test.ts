@@ -62,14 +62,10 @@ describe("sport tabs", () => {
 
 describe("browseAllHref", () => {
   it("keeps the sport, so NBA's 'Browse all 37' lands on NBA's 37", () => {
-    expect(browseAllHref("nba", "simple")).toBe("/?sport=nba&view=all");
+    expect(browseAllHref("nba")).toBe("/?sport=nba&view=all");
   });
 
   it("is the whole feed on the All tab", () => {
-    expect(browseAllHref(null, "simple")).toBe("/?view=all");
-  });
-
-  it("keeps Advanced mode", () => {
-    expect(browseAllHref("nfl", "advanced")).toBe("/?sport=nfl&mode=advanced&view=all");
+    expect(browseAllHref(null)).toBe("/?view=all");
   });
 });

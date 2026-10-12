@@ -17,14 +17,21 @@ import type { Divergence } from "./types";
  * size on purpose.
  */
 
+function isLiveDivergence(d: Divergence): boolean {
+  const s = d.live?.status;
+  return s === "in_progress" || s === "halftime";
+}
+
 /** Signal for a scored game; null when it cannot be ranked. */
 export function signalOf(d: Divergence): number | null {
   if (d.status !== "scored") return null;
+  if (isLiveDivergence(d)) return null;
   return d.best_expected_value;
 }
 
-/** Scored games can be ranked; anything else keeps its kickoff order, unranked. */
-export const isRanked = (d: Divergence): boolean => d.status === "scored";
+/** Scored games can be ranked; live games and anything else stay unranked. */
+export const isRanked = (d: Divergence): boolean =>
+  d.status === "scored" && !isLiveDivergence(d);
 
 const kickoffMs = (d: Divergence) => new Date(d.scheduled_start).getTime() || 0;
 
