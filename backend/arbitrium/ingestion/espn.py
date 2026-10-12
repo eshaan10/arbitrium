@@ -198,6 +198,14 @@ def _parse_espn_date(value: str | None) -> datetime | None:
         return None
 
 
+# Preseason exhibitions schedule a partner team against a non-partner (e.g.
+# Trail Blazers vs London Lions), and ESPN returns that card on every poll.
+# The team registry correctly fails to resolve the exhibition side; without
+# this a legitimate "we skipped a real game" warning gets drowned in a tick-
+# cadence repeat of the exhibition every 30s. Dedup is per process.
+_warned_unresolved: set[str] = set()
+
+
 LIVE_STATUS_SCHEDULED = "scheduled"
 LIVE_STATUS_IN_PROGRESS = "in_progress"
 LIVE_STATUS_HALFTIME = "halftime"
@@ -380,15 +388,18 @@ def extract_live_state(payload: dict, sport: str) -> LiveState | None:
     home = _resolve_espn_team(league, sides["home"].get("team") or {})
     away = _resolve_espn_team(league, sides["away"].get("team") or {})
     if home is None or away is None:
-        logger.warning(
-            "ESPN event %s: unresolved team(s) home=%r (id %s) away=%r (id %s); "
-            "skipping live state (registry gap)",
-            payload.get("id"),
-            (sides["home"].get("team") or {}).get("displayName"),
-            (sides["home"].get("team") or {}).get("id"),
-            (sides["away"].get("team") or {}).get("displayName"),
-            (sides["away"].get("team") or {}).get("id"),
-        )
+        key = f"{sport}:{payload.get('id') or ''}"
+        if key not in _warned_unresolved:
+            _warned_unresolved.add(key)
+            logger.warning(
+                "ESPN event %s: unresolved team(s) home=%r (id %s) away=%r (id %s); "
+                "skipping live state (registry gap)",
+                payload.get("id"),
+                (sides["home"].get("team") or {}).get("displayName"),
+                (sides["home"].get("team") or {}).get("id"),
+                (sides["away"].get("team") or {}).get("displayName"),
+                (sides["away"].get("team") or {}).get("id"),
+            )
         return None
 
     # Scores are present for in_progress and final; absent for scheduled.
