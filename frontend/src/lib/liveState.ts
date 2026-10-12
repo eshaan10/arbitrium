@@ -14,6 +14,19 @@ export function gameState(
   return "scheduled";
 }
 
+/**
+ * Whether a game gets a scoreboard: always before kickoff, from the event's own
+ * teams and start time when ESPN has not written a row yet, and afterwards only
+ * when there is live state to show. A past game with no row stays blank rather
+ * than showing an empty "Started" board.
+ */
+export function hasScoreboard(
+  d: { scheduled_start: string; live: Live | null },
+  now: Date = new Date(),
+): boolean {
+  return d.live != null || gameState(d, now) === "scheduled";
+}
+
 export function isLive(d: { live: Live | null }): boolean {
   const s = d.live?.status;
   return s === "in_progress" || s === "halftime";
@@ -29,6 +42,11 @@ export function countdownTo(start: string, now: Date = new Date()): string {
   const min = Math.floor(sec / 60);
   if (min < 60) return `starts in ${min}m`;
   const hr = Math.floor(min / 60);
+  if (hr >= 24) {
+    const days = Math.floor(hr / 24);
+    const hrs = hr - days * 24;
+    return hrs > 0 ? `starts in ${days}d ${hrs}h` : `starts in ${days}d`;
+  }
   const rem = min - hr * 60;
   return rem > 0 ? `starts in ${hr}h ${rem}m` : `starts in ${hr}h`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countdownTo, gameState } from "./liveState";
+import { countdownTo, gameState, hasScoreboard } from "./liveState";
 import type { Live } from "./types";
 
 const START = "2026-10-11T20:00:00Z";
@@ -74,8 +74,35 @@ describe("countdownTo", () => {
     expect(countdownTo(START, now)).toBe("starts in 42s");
   });
 
+  it("formats days and hours from a day out", () => {
+    const now = new Date("2026-10-09T15:46:00Z");
+    expect(countdownTo(START, now)).toBe("starts in 2d 4h");
+  });
+
+  it("drops hours when a whole number of days out", () => {
+    const now = new Date("2026-10-08T20:00:00Z");
+    expect(countdownTo(START, now)).toBe("starts in 3d");
+  });
+
   it("returns an empty string once kickoff has passed", () => {
     const now = new Date("2026-10-11T20:01:00Z");
     expect(countdownTo(START, now)).toBe("");
+  });
+});
+
+describe("hasScoreboard", () => {
+  it("shows a game that has not started even with no live state", () => {
+    const now = new Date("2026-10-09T20:00:00Z");
+    expect(hasScoreboard({ scheduled_start: START, live: null }, now)).toBe(true);
+  });
+
+  it("hides a past game that ESPN never wrote a row for", () => {
+    const now = new Date("2026-10-12T20:00:00Z");
+    expect(hasScoreboard({ scheduled_start: START, live: null }, now)).toBe(false);
+  });
+
+  it("shows any game with live state", () => {
+    const now = new Date("2026-10-12T20:00:00Z");
+    expect(hasScoreboard({ scheduled_start: START, live: live("final") }, now)).toBe(true);
   });
 });

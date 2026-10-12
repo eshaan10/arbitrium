@@ -14,6 +14,13 @@ CADENCE is DB-gated, not clock-guessed:
   venue and TV refresh).
 * Never otherwise.
 
+A second, slower pass covers the days ahead. The sweep above only reaches
+yesterday and today, so a game later in the week had no row and the UI had
+nothing but the event to show. Hourly, while the sport has a game in the next
+``UPCOMING_DAYS``, it fetches that week from ESPN and writes ``scheduled`` rows
+(records, venue, TV). It never overwrites a row that has moved past
+``scheduled``: in-progress and final state belong to the fast pass.
+
 The scheduler runs this pass unconditionally; the pass itself consults the DB
 first and returns ``events_seen=0`` without making an HTTP call when there is
 nothing to poll. That keeps the "no calls otherwise" guarantee visible in one
@@ -26,7 +33,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -42,6 +49,7 @@ from arbitrium.ingestion.espn import (
     LIVE_STATUS_SCHEDULED,
     LiveState,
     fetch_live_states,
+    fetch_upcoming_states,
 )
 from arbitrium.ingestion.result import IngestResult
 from arbitrium.matching import (
@@ -64,6 +72,9 @@ MAX_GAME_DURATION = timedelta(hours=6)
 CADENCE_LIVE_SECONDS = 30
 CADENCE_SCHEDULED_SECONDS = 900
 CADENCE_IDLE_SECONDS = 3600
+
+UPCOMING_DAYS = 7
+CADENCE_UPCOMING_SECONDS = 3600
 
 
 _ACTIVE_STATUSES = (
@@ -130,14 +141,29 @@ def compute_cadence_seconds(db: Session, sport: str, *, now: datetime | None = N
     return None
 
 
-def _match_candidates(db: Session, sport: str, now: datetime) -> list[MatchCandidate]:
-    """All sport events within the match window of today (both directions)."""
+def _has_upcoming(db: Session, sport: str, now: datetime) -> bool:
+    """True if the sport has any game between now and ``UPCOMING_DAYS`` ahead."""
+    row = db.execute(
+        select(Event.id).where(
+            Event.sport == sport,
+            Event.scheduled_start >= now,
+            Event.scheduled_start < now + timedelta(days=UPCOMING_DAYS + 1),
+        ).limit(1)
+    ).first()
+    return row is not None
+
+
+def _match_candidates(
+    db: Session, sport: str, now: datetime, *, ahead: timedelta = timedelta(0),
+) -> list[MatchCandidate]:
+    """All sport events within the match window of today (both directions),
+    extended ``ahead`` into the future for the upcoming pass."""
     window = match_window(sport)
     rows = db.execute(
         select(Event).where(
             Event.sport == sport,
             Event.scheduled_start >= now - window - timedelta(days=1),
-            Event.scheduled_start <= now + window + timedelta(days=1),
+            Event.scheduled_start <= now + window + timedelta(days=1) + ahead,
         )
     ).scalars().all()
     return [
@@ -194,6 +220,69 @@ def _upsert(db: Session, event_id, state: LiveState) -> None:
     db.execute(stmt)
 
 
+def _upsert_scheduled(db: Session, event_id, state: LiveState) -> bool:
+    """Write a scheduled row's metadata. True if a row was inserted or updated.
+
+    The conflict update only fires while the stored row is still ``scheduled``,
+    so an hourly fetch can never roll a live or final game back.
+    """
+    stmt = pg_insert(EventLiveState).values(
+        event_id=event_id,
+        status=LIVE_STATUS_SCHEDULED,
+        detail=state.detail,
+        home_record=state.home_record,
+        away_record=state.away_record,
+        venue=state.venue,
+        broadcast=state.broadcast,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[EventLiveState.event_id],
+        set_={
+            "detail": stmt.excluded.detail,
+            "home_record": stmt.excluded.home_record,
+            "away_record": stmt.excluded.away_record,
+            "venue": stmt.excluded.venue,
+            "broadcast": stmt.excluded.broadcast,
+            "updated_at": func.now(),
+        },
+        where=EventLiveState.status == LIVE_STATUS_SCHEDULED,
+    ).returning(EventLiveState.event_id)
+    # RETURNING, not rowcount: a conflict the WHERE turns away returns no row.
+    return db.execute(stmt).first() is not None
+
+
+def _match(state: LiveState, candidates: list[MatchCandidate]) -> tuple[object | None, str]:
+    """The event id an ESPN state belongs to, or None with why (logged)."""
+    if state.commence_time is None:
+        logger.warning(
+            "ESPN event %s: missing commence_time; skipping live upsert",
+            state.espn_event_id,
+        )
+        return None, "unmatched"
+    target = EventKey(
+        sport=state.sport,
+        home_team=state.home_team,
+        away_team=state.away_team,
+        start=state.commence_time,
+    )
+    result = match_event(target, candidates)
+    if result.status == MatchStatus.MATCHED and result.candidate is not None:
+        return result.candidate.identifier, "matched"
+    if result.status == MatchStatus.AMBIGUOUS:
+        logger.warning(
+            "ESPN event %s (%s vs %s @ %s): ambiguous match; skipping",
+            state.espn_event_id, state.home_team, state.away_team,
+            state.commence_time.isoformat(),
+        )
+        return None, "ambiguous"
+    logger.warning(
+        "ESPN event %s (%s vs %s @ %s): no matching event row; skipping",
+        state.espn_event_id, state.home_team, state.away_team,
+        state.commence_time.isoformat(),
+    )
+    return None, "unmatched"
+
+
 def run_pass(
     sport: str,
     *,
@@ -227,37 +316,14 @@ def run_pass(
         unmatched = 0
         ambiguous = 0
         for state in states:
-            if state.commence_time is None:
-                logger.warning(
-                    "ESPN event %s: missing commence_time; skipping live upsert",
-                    state.espn_event_id,
-                )
-                unmatched += 1
-                continue
-            target = EventKey(
-                sport=state.sport,
-                home_team=state.home_team,
-                away_team=state.away_team,
-                start=state.commence_time,
-            )
-            result = match_event(target, candidates)
-            if result.status == MatchStatus.MATCHED and result.candidate is not None:
-                _upsert(db, result.candidate.identifier, state)
+            event_id, outcome = _match(state, candidates)
+            if event_id is not None:
+                _upsert(db, event_id, state)
                 updated += 1
-            elif result.status == MatchStatus.AMBIGUOUS:
+            elif outcome == "ambiguous":
                 ambiguous += 1
-                logger.warning(
-                    "ESPN event %s (%s vs %s @ %s): ambiguous match; skipping",
-                    state.espn_event_id, state.home_team, state.away_team,
-                    state.commence_time.isoformat(),
-                )
             else:
                 unmatched += 1
-                logger.warning(
-                    "ESPN event %s (%s vs %s @ %s): no matching event row; skipping",
-                    state.espn_event_id, state.home_team, state.away_team,
-                    state.commence_time.isoformat(),
-                )
         db.commit()
 
     took_ms = int((time.monotonic() - start) * 1000)
@@ -273,6 +339,61 @@ def run_pass(
         events_skipped=unmatched + ambiguous,
         rows_attempted=updated + unmatched + ambiguous,
         rows_written=updated,
+    )
+
+
+def run_upcoming_pass(
+    sport: str,
+    *,
+    session_factory=SessionLocal,
+    client: EspnClient | None = None,
+    now: datetime | None = None,
+) -> IngestResult:
+    """Write ``scheduled`` rows for the sport's next ``UPCOMING_DAYS`` of games.
+
+    DB-gated like :func:`run_pass`: no game in that span, no HTTP call. ESPN
+    states that are not ``scheduled`` (today's live and final games) are
+    skipped; the fast pass owns those.
+    """
+    moment = now or datetime.now(timezone.utc)
+    source_name = f"live_scores_upcoming_{sport}"
+    start = time.monotonic()
+
+    with session_factory() as db:
+        if not _has_upcoming(db, sport, moment):
+            logger.info("live_scores_upcoming sport=%s window=idle games_updated=0", sport)
+            return IngestResult(source=source_name)
+
+        states = [
+            s for s in fetch_upcoming_states(sport, days=UPCOMING_DAYS, now=moment, client=client)
+            if s.status == LIVE_STATUS_SCHEDULED
+        ]
+        candidates = _match_candidates(
+            db, sport, moment, ahead=timedelta(days=UPCOMING_DAYS)
+        )
+
+        written = 0
+        matched = 0
+        for state in states:
+            event_id, _ = _match(state, candidates)
+            if event_id is None:
+                continue
+            matched += 1
+            if _upsert_scheduled(db, event_id, state):
+                written += 1
+        db.commit()
+
+    took_ms = int((time.monotonic() - start) * 1000)
+    logger.info(
+        "live_scores_upcoming sport=%s games_updated=%d skipped=%d took=%dms",
+        sport, written, len(states) - matched, took_ms,
+    )
+    return IngestResult(
+        source=source_name,
+        events_seen=len(states),
+        events_skipped=len(states) - matched,
+        rows_attempted=matched,
+        rows_written=written,
     )
 
 
@@ -297,3 +418,12 @@ def interval_fn_for(sport: str):
         return cadence if cadence is not None else CADENCE_IDLE_SECONDS
 
     return _interval
+
+
+def upcoming_pass_fn_for(sport: str):
+    """Factory: the hourly upcoming-games pass for this sport."""
+
+    def _pass() -> IngestResult:
+        return run_upcoming_pass(sport)
+
+    return _pass

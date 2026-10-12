@@ -27,8 +27,10 @@ from arbitrium.ingestion.espn import (
 from arbitrium.ingestion.live_scores import (
     CADENCE_LIVE_SECONDS,
     CADENCE_SCHEDULED_SECONDS,
+    UPCOMING_DAYS,
     compute_cadence_seconds,
     run_pass,
+    run_upcoming_pass,
 )
 
 UTC = timezone.utc
@@ -336,6 +338,95 @@ def test_unmatched_espn_game_is_skipped_and_logged(db_session, caplog):
     # ...but ESPN returned a different pair that could not match our DB row.
     assert result.rows_written == 0
     assert any("no matching event row" in m for m in caplog.messages)
+
+
+# ---------- upcoming games ---------------------------------------------------
+
+# Far from any real fixture in the dev database, so matching sees only ours.
+FUTURE = datetime(2031, 10, 12, 16, 0, tzinfo=UTC)
+
+
+def _session(db_session):
+    class _Ctx:
+        def __enter__(self_inner): return db_session
+        def __exit__(self_inner, *exc): return False
+    return lambda: _Ctx()
+
+
+def _scheduled_payload(*, start, home, away, espn_id, broadcast="Prime Video"):
+    p = _nfl_payload(status_name="STATUS_SCHEDULED", state="pre",
+                     home=home, away=away, home_score=None, away_score=None,
+                     home_record="3-2", away_record="4-1",
+                     period=0, clock="0:00", situation=False,
+                     date=start.strftime("%Y-%m-%dT%H:%MZ"), espn_id=espn_id)
+    p["competitions"][0]["venue"] = {"fullName": "Empower Field at Mile High"}
+    p["competitions"][0]["broadcasts"] = [{"names": [broadcast]}]
+    for c in p["competitions"][0]["competitors"]:
+        c["linescores"] = []
+    return p
+
+
+def test_upcoming_pass_writes_scheduled_rows_days_out(db_session):
+    start = FUTURE + timedelta(days=4, hours=8)
+    ev = _game(db_session, home="Denver Broncos", away="Seattle Seahawks", start=start)
+    stub = _StubClient([_scheduled_payload(
+        start=start, home="Denver Broncos", away="Seattle Seahawks", espn_id="up-1")])
+
+    result = run_upcoming_pass("nfl", session_factory=_session(db_session),
+                               client=stub, now=FUTURE)
+
+    # Today plus seven days, one call per date.
+    assert stub.calls == UPCOMING_DAYS + 1
+    assert result.rows_written == 1
+    row = db_session.get(EventLiveState, ev.id)
+    assert row.status == LIVE_STATUS_SCHEDULED
+    assert (row.away_record, row.home_record) == ("4-1", "3-2")
+    assert row.venue == "Empower Field at Mile High"
+    assert row.broadcast == "Prime Video"
+    assert row.home_score is None and row.linescore is None
+
+
+def test_upcoming_pass_never_touches_live_rows(db_session):
+    live_start = FUTURE - timedelta(hours=1)
+    live_ev = _game(db_session, home="San Francisco 49ers", away="Seattle Seahawks",
+                    start=live_start)
+    db_session.add(EventLiveState(
+        event_id=live_ev.id, status=LIVE_STATUS_IN_PROGRESS, period=2, clock="3:00",
+        home_score=14, away_score=7, broadcast="FOX",
+    ))
+    later = FUTURE + timedelta(days=2)
+    _game(db_session, home="Kansas City Chiefs", away="Denver Broncos", start=later)
+    db_session.flush()
+
+    stub = _StubClient([
+        # ESPN's live view of the in-progress game: not ours to write.
+        _nfl_payload(home="San Francisco 49ers", away="Seattle Seahawks",
+                     date=live_start.strftime("%Y-%m-%dT%H:%MZ"), espn_id="live-1"),
+        # A stale "scheduled" read of the same game must not roll it back either.
+        _scheduled_payload(start=live_start, home="San Francisco 49ers",
+                           away="Seattle Seahawks", espn_id="live-1-stale",
+                           broadcast="CBS"),
+        _scheduled_payload(start=later, home="Kansas City Chiefs",
+                           away="Denver Broncos", espn_id="up-2"),
+    ])
+
+    result = run_upcoming_pass("nfl", session_factory=_session(db_session),
+                               client=stub, now=FUTURE)
+
+    assert result.rows_written == 1
+    db_session.expire_all()
+    row = db_session.get(EventLiveState, live_ev.id)
+    assert row.status == LIVE_STATUS_IN_PROGRESS
+    assert (row.home_score, row.away_score) == (14, 7)
+    assert row.broadcast == "FOX"
+
+
+def test_upcoming_pass_makes_zero_calls_with_no_games_ahead(db_session):
+    stub = _StubClient([])
+    result = run_upcoming_pass("nfl", session_factory=_session(db_session),
+                               client=stub, now=FUTURE)
+    assert stub.calls == 0
+    assert result.rows_written == 0
 
 
 # ---------- pick_result in the API payload -----------------------------------

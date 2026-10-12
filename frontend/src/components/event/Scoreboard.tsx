@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { KickoffTime } from "./KickoffTime";
 import { TeamLogo } from "./Matchup";
 import { matchupVisuals, teamInitials, teamVisual } from "@/lib/teams";
 import { countdownTo, gameState } from "@/lib/liveState";
@@ -220,12 +221,7 @@ export function Scoreboard({
             <span className="text-micro font-semibold text-muted">
               {state === "started" ? "Started" : "Scheduled"}
             </span>
-            <span className="tabular text-micro text-faint">
-              {new Date(scheduled_start).toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </span>
+            <KickoffTime iso={scheduled_start} className="tabular text-micro text-faint" />
           </div>
           <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <Side
@@ -247,14 +243,15 @@ export function Scoreboard({
             />
           </div>
           {state === "scheduled" ? (
-            <div className="mt-2 text-center text-micro text-muted">
+            <div suppressHydrationWarning className="mt-2 text-center text-micro text-muted">
               {countdownTo(scheduled_start, now) || "Starting soon"}
             </div>
           ) : null}
-          {(live?.venue || live?.broadcast) ? (
-            <div className="mt-1 truncate text-center text-micro text-faint">
-              {[live?.venue, live?.broadcast].filter(Boolean).join(", ")}
-            </div>
+          {live?.venue ? (
+            <div className="mt-1 truncate text-center text-micro text-faint">{live.venue}</div>
+          ) : null}
+          {live?.broadcast ? (
+            <div className="mt-1 truncate text-center text-micro text-faint">TV: {live.broadcast}</div>
           ) : null}
         </>
       )}

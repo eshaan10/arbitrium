@@ -16,7 +16,7 @@ import { KickoffTime } from "./KickoffTime";
 import { SignalMeter } from "./Signal";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence, Recommendation } from "@/lib/types";
-import { gameState, isLive } from "@/lib/liveState";
+import { gameState, hasScoreboard, isLive } from "@/lib/liveState";
 import { Scoreboard } from "./Scoreboard";
 
 /**
@@ -134,7 +134,7 @@ export function EventCard({
         )}
       </div>
 
-      {d.live ? (
+      {hasScoreboard(d) ? (
         <div className="mt-3">
           <Scoreboard
             home_team={d.home_team}
@@ -360,7 +360,7 @@ function RecommendationCard({
         </p>
       ) : null}
 
-      {d.live ? (
+      {hasScoreboard(d) ? (
         <div className="mt-3">
           <Scoreboard
             home_team={d.home_team}

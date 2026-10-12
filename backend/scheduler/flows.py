@@ -322,15 +322,25 @@ def _live_scores_sources() -> list[_Source]:
     Interval is dynamic: 30s when a game is in its live window, 15m while
     there are scheduled games today, 1h otherwise. The pass_fn re-checks the
     DB so the "no HTTP call" guarantee survives even if the interval closure
-    is wrong by a tick.
+    is wrong by a tick. A second hourly source per sport fills in scheduled
+    rows for the week ahead.
     """
     return [
-        _Source(
-            f"live_scores_{sport}",
-            live_scores.pass_fn_for(sport),
-            live_scores.interval_fn_for(sport),
-        )
+        source
         for sport in ESPN_SPORTS
+        for source in (
+            _Source(
+                f"live_scores_{sport}",
+                live_scores.pass_fn_for(sport),
+                live_scores.interval_fn_for(sport),
+            ),
+            # The week ahead, for scheduled rows the live sweep never reaches.
+            _Source(
+                f"live_scores_upcoming_{sport}",
+                live_scores.upcoming_pass_fn_for(sport),
+                live_scores.CADENCE_UPCOMING_SECONDS,
+            ),
+        )
     ]
 
 

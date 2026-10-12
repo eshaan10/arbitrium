@@ -486,6 +486,25 @@ def fetch_live_states(
     UTC), de-duplicating by ESPN event id — a late-evening game appears under
     both buckets and we want each event parsed once.
     """
+    return _fetch_states(sport, range(-1, 1), now=now, client=client)
+
+
+def fetch_upcoming_states(
+    sport: str, *, days: int, now: datetime | None = None,
+    client: EspnClient | None = None,
+) -> list[LiveState]:
+    """Fetch today through ``days`` ahead: the slate the live sweep never reaches.
+
+    One call per date. ESPN's ``dates=START-END`` range form answers 400
+    ("Failed to get events endpoint") for every range tried, and the month form
+    is capped at 100 events, so neither covers a week reliably. Calls are free.
+    """
+    return _fetch_states(sport, range(0, days + 1), now=now, client=client)
+
+
+def _fetch_states(
+    sport: str, offsets: range, *, now: datetime | None, client: EspnClient | None,
+) -> list[LiveState]:
     moment = now or datetime.now(timezone.utc)
     own = client is None
     client = client or EspnClient()
@@ -493,7 +512,7 @@ def fetch_live_states(
     out: list[LiveState] = []
     try:
         for date in sorted({(moment + timedelta(days=d)).strftime("%Y%m%d")
-                            for d in (-1, 0)}):
+                            for d in offsets}):
             for payload in client.get_scoreboard(sport, date):
                 state = extract_live_state(payload, sport)
                 if state is None:

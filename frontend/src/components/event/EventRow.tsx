@@ -14,7 +14,7 @@ import { cents, edgeCents, fairValueCents } from "@/lib/format";
 import { matchupVisuals, teamVisual } from "@/lib/teams";
 import type { NetMove } from "@/lib/moves";
 import type { Divergence, Recommendation } from "@/lib/types";
-import { gameState, isLive } from "@/lib/liveState";
+import { gameState, hasScoreboard, isLive } from "@/lib/liveState";
 import { Scoreboard } from "./Scoreboard";
 
 /**
@@ -312,7 +312,7 @@ function RecommendationRow({
 
           {/* On a phone the scoreboard sits above the bet calculator; on
               desktop it moves back into the right column with the stats. */}
-          {d.live ? (
+          {hasScoreboard(d) ? (
             <div className="mb-4 md:hidden">
               <Scoreboard
                 home_team={d.home_team}
@@ -344,7 +344,7 @@ function RecommendationRow({
                 ) : null}
                 {move ? <MoveChip move={move} /> : null}
               </span>
-              {d.live ? (
+              {hasScoreboard(d) ? (
                 <div className="hidden md:block">
                   <Scoreboard
                     home_team={d.home_team}

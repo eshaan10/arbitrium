@@ -15,6 +15,7 @@ import { EventPin } from "@/components/event/EventPin";
 import { recSignature } from "@/lib/changes";
 import { OutcomeSection } from "@/components/event/OutcomeSection";
 import { Scoreboard } from "@/components/event/Scoreboard";
+import { hasScoreboard } from "@/lib/liveState";
 import { BooksTable } from "@/components/advanced/BooksTable";
 import { ArbitragePanel } from "@/components/advanced/ArbitragePanel";
 import { SectionHeading, Card } from "@/components/primitives";
@@ -189,7 +190,7 @@ export default async function EventPage({
         ) : null}
       </div>
 
-      {(d?.live ?? ev.live) ? (
+      {hasScoreboard({ scheduled_start: ev.scheduled_start, live: d?.live ?? ev.live ?? null }) ? (
         <Scoreboard
           home_team={ev.home_team}
           away_team={ev.away_team}
