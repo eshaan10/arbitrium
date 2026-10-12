@@ -35,6 +35,17 @@ describe("gameState", () => {
     expect(gameState({ scheduled_start: START, live: live("halftime") }, now)).toBe("live");
   });
 
+  it("stays live through six hours after kickoff", () => {
+    const now = new Date("2026-10-12T02:00:00Z");
+    expect(gameState({ scheduled_start: START, live: live("in_progress") }, now)).toBe("live");
+  });
+
+  it("is started, not live, once an in-play row is over six hours old", () => {
+    const now = new Date("2026-10-12T03:00:00Z");
+    expect(gameState({ scheduled_start: START, live: live("in_progress") }, now)).toBe("started");
+    expect(gameState({ scheduled_start: START, live: live("halftime") }, now)).toBe("started");
+  });
+
   it("is final when the status is final", () => {
     const now = new Date("2026-10-11T22:30:00Z");
     expect(gameState({ scheduled_start: START, live: live("final") }, now)).toBe("final");

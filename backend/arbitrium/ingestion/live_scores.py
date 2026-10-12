@@ -17,9 +17,10 @@ CADENCE is DB-gated, not clock-guessed:
 A second, slower pass covers the days ahead. The sweep above only reaches
 yesterday and today, so a game later in the week had no row and the UI had
 nothing but the event to show. Hourly, while the sport has a game in the next
-``UPCOMING_DAYS``, it fetches that week from ESPN and writes ``scheduled`` rows
-(records, venue, TV). It never overwrites a row that has moved past
-``scheduled``: in-progress and final state belong to the fast pass.
+``UPCOMING_DAYS``, it fetches that week (and yesterday) from ESPN and writes
+``scheduled`` rows (records, venue, TV) plus any finals. It never writes an
+in-progress state, and its scheduled write never overwrites a row that has
+moved past ``scheduled`` or ``postponed``.
 
 The scheduler runs this pass unconditionally; the pass itself consults the DB
 first and returns ``events_seen=0`` without making an HTTP call when there is
@@ -89,7 +90,9 @@ def _has_live_window(db: Session, sport: str, now: datetime) -> bool:
 
     By stored status:
 
-    * in progress / halftime: always, until ESPN says otherwise.
+    * in progress / halftime: until ``MAX_GAME_DURATION`` after kickoff. A row
+      ESPN stopped updating would otherwise hold the 30s poll forever; past
+      that the hourly upcoming pass still lands its final if ESPN lists one.
     * scheduled: from 15 minutes before kickoff to 4 hours after it.
     * final: for 30 minutes after the row went final. ``updated_at`` marks the
       last real change because the upsert skips identical writes; if every
@@ -106,7 +109,10 @@ def _has_live_window(db: Session, sport: str, now: datetime) -> bool:
             Event.scheduled_start - LIVE_WINDOW_PRE_KICKOFF <= now,
             or_(
                 EventLiveState.status.is_(None),
-                EventLiveState.status.in_(_IN_PLAY_STATUSES),
+                and_(
+                    EventLiveState.status.in_(_IN_PLAY_STATUSES),
+                    Event.scheduled_start >= window_start,
+                ),
                 and_(
                     EventLiveState.status == LIVE_STATUS_SCHEDULED,
                     Event.scheduled_start + SCHEDULED_STALE_AFTER >= now,
@@ -207,7 +213,7 @@ _LIVE_COLUMNS = (
 )
 
 
-def _upsert(db: Session, event_id, state: LiveState) -> None:
+def _upsert(db: Session, event_id, state: LiveState) -> bool:
     stmt = pg_insert(EventLiveState).values(
         event_id=event_id,
         status=state.status,
@@ -250,8 +256,8 @@ def _upsert(db: Session, event_id, state: LiveState) -> None:
             getattr(EventLiveState, col).is_distinct_from(getattr(stmt.excluded, col))
             for col in _LIVE_COLUMNS
         )),
-    )
-    db.execute(stmt)
+    ).returning(EventLiveState.event_id)
+    return db.execute(stmt).first() is not None
 
 
 def _upsert_scheduled(db: Session, event_id, state: LiveState) -> bool:
@@ -385,11 +391,13 @@ def run_upcoming_pass(
     client: EspnClient | None = None,
     now: datetime | None = None,
 ) -> IngestResult:
-    """Write ``scheduled`` rows for the sport's next ``UPCOMING_DAYS`` of games.
+    """Write ``scheduled`` rows for the sport's next ``UPCOMING_DAYS`` of games,
+    and any final ESPN lists for yesterday or today.
 
-    DB-gated like :func:`run_pass`: no game in that span, no HTTP call. ESPN
-    states that are not ``scheduled`` (today's live and final games) are
-    skipped; the fast pass owns those.
+    DB-gated like :func:`run_pass`: no game in that span, no HTTP call. Finals
+    go through the same change-only upsert as the fast pass, so this is where a
+    game that aged out of the fast poll still gets its result. In-progress
+    states are skipped; the fast pass owns those.
     """
     moment = now or datetime.now(timezone.utc)
     source_name = f"live_scores_upcoming_{sport}"
@@ -400,9 +408,12 @@ def run_upcoming_pass(
             logger.info("live_scores_upcoming sport=%s window=idle games_updated=0", sport)
             return IngestResult(source=source_name)
 
+        # Scheduled rows for the week ahead, plus any final: a game that
+        # dropped out of the fast poll (see _has_live_window) gets its result
+        # here. In-progress states stay the fast pass's.
         states = [
             s for s in fetch_upcoming_states(sport, days=UPCOMING_DAYS, now=moment, client=client)
-            if s.status == LIVE_STATUS_SCHEDULED
+            if s.status in (LIVE_STATUS_SCHEDULED, LIVE_STATUS_FINAL)
         ]
         candidates = _match_candidates(
             db, sport, moment, ahead=timedelta(days=UPCOMING_DAYS)
@@ -415,7 +426,9 @@ def run_upcoming_pass(
             if event_id is None:
                 continue
             matched += 1
-            if _upsert_scheduled(db, event_id, state):
+            if state.status == LIVE_STATUS_FINAL:
+                written += int(_upsert(db, event_id, state))
+            elif _upsert_scheduled(db, event_id, state):
                 written += 1
         db.commit()
 

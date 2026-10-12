@@ -2,14 +2,23 @@ import type { Live } from "./types";
 
 export type GameState = "scheduled" | "live" | "started" | "final";
 
+/**
+ * How long after kickoff an in-progress row may still read as LIVE. Matches
+ * the backend's MAX_GAME_DURATION, past which it stops polling the game: a row
+ * ESPN never updated again is stale by then, and shows as "Started" rather
+ * than a LIVE dot that would never go out.
+ */
+export const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
 export function gameState(
   d: { scheduled_start: string; live: Live | null },
   now: Date = new Date(),
 ): GameState {
   const s = d.live?.status;
-  if (s === "in_progress" || s === "halftime") return "live";
-  if (s === "final") return "final";
   const start = new Date(d.scheduled_start).getTime();
+  const fresh = Number.isNaN(start) || now.getTime() - start <= LIVE_MAX_AGE_MS;
+  if ((s === "in_progress" || s === "halftime") && fresh) return "live";
+  if (s === "final") return "final";
   if (!Number.isNaN(start) && now.getTime() > start) return "started";
   return "scheduled";
 }
@@ -27,6 +36,11 @@ export function hasScoreboard(
   return d.live != null || gameState(d, now) === "scheduled";
 }
 
+/**
+ * The game is under way by ESPN's last word, however old. Gates price logic
+ * (in-game Kalshi prices are not pregame edges), not the LIVE display: that is
+ * gameState, which also requires the row to be fresh.
+ */
 export function isLive(d: { live: Live | null }): boolean {
   const s = d.live?.status;
   return s === "in_progress" || s === "halftime";

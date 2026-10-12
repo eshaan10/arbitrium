@@ -483,8 +483,8 @@ def test_upcoming_pass_writes_scheduled_rows_days_out(db_session):
     result = run_upcoming_pass("nfl", session_factory=_session(db_session),
                                client=stub, now=FUTURE)
 
-    # Today plus seven days, one call per date.
-    assert stub.calls == UPCOMING_DAYS + 1
+    # Yesterday through seven days ahead, one call per date.
+    assert stub.calls == UPCOMING_DAYS + 2
     assert result.rows_written == 1
     row = db_session.get(EventLiveState, ev.id)
     assert row.status == LIVE_STATUS_SCHEDULED
@@ -545,6 +545,47 @@ def test_upcoming_pass_picks_up_a_postponed_game_listed_again(db_session):
     row = db_session.get(EventLiveState, ev.id)
     assert row.status == LIVE_STATUS_SCHEDULED
     assert row.broadcast == "Prime Video"
+
+
+def test_in_progress_row_stops_fast_polling_six_hours_after_kickoff(db_session, no_other_games):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=5))
+    db_session.add(EventLiveState(event_id=ev.id, status=LIVE_STATUS_IN_PROGRESS,
+                                  home_score=21, away_score=17))
+    db_session.flush()
+    assert compute_cadence_seconds(db_session, "nfl", now=now) == CADENCE_LIVE_SECONDS
+
+    # Two hours on, ESPN has said nothing more: the row is left as it was...
+    later = now + timedelta(hours=2)
+    assert compute_cadence_seconds(db_session, "nfl", now=later) is None
+    db_session.expire_all()
+    assert db_session.get(EventLiveState, ev.id).status == LIVE_STATUS_IN_PROGRESS
+
+
+def test_final_still_lands_on_a_row_that_left_the_fast_poll(db_session):
+    stale_start = FUTURE - timedelta(hours=7)
+    stale = _game(db_session, home="Kansas City Chiefs", away="Denver Broncos",
+                  start=stale_start)
+    db_session.add(EventLiveState(event_id=stale.id, status=LIVE_STATUS_IN_PROGRESS,
+                                  period=3, clock="4:12", home_score=14, away_score=10))
+    # A game in the week ahead, so the hourly pass has a reason to run.
+    _game(db_session, home="San Francisco 49ers", away="Seattle Seahawks",
+          start=FUTURE + timedelta(days=2))
+    db_session.flush()
+
+    stub = _StubClient([_nfl_payload(
+        status_name="STATUS_FINAL", state="post", completed=True,
+        home_score="27", away_score="20", situation=False,
+        date=stale_start.strftime("%Y-%m-%dT%H:%MZ"), espn_id="stale-1",
+    )])
+    result = run_upcoming_pass("nfl", session_factory=_session(db_session),
+                               client=stub, now=FUTURE)
+
+    assert result.rows_written == 1
+    db_session.expire_all()
+    row = db_session.get(EventLiveState, stale.id)
+    assert row.status == LIVE_STATUS_FINAL
+    assert (row.home_score, row.away_score) == (27, 20)
 
 
 def test_upcoming_pass_makes_zero_calls_with_no_games_ahead(db_session):

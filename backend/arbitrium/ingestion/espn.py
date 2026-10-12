@@ -493,13 +493,14 @@ def fetch_upcoming_states(
     sport: str, *, days: int, now: datetime | None = None,
     client: EspnClient | None = None,
 ) -> list[LiveState]:
-    """Fetch today through ``days`` ahead: the slate the live sweep never reaches.
+    """Fetch yesterday through ``days`` ahead: the slate the live sweep never
+    reaches, plus yesterday for finals of games that left the fast poll.
 
     One call per date. ESPN's ``dates=START-END`` range form answers 400
     ("Failed to get events endpoint") for every range tried, and the month form
     is capped at 100 events, so neither covers a week reliably. Calls are free.
     """
-    return _fetch_states(sport, range(0, days + 1), now=now, client=client)
+    return _fetch_states(sport, range(-1, days + 1), now=now, client=client)
 
 
 def _fetch_states(

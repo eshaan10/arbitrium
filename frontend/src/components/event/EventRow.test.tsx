@@ -29,7 +29,8 @@ const ROW = {
   league: "NFL",
   home_team: "Atlanta Falcons",
   away_team: "Baltimore Ravens",
-  scheduled_start: "2026-10-11T17:00:00Z",
+  // An hour ago: in play, and well inside the six hours a row may read LIVE.
+  scheduled_start: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
   status: "scored",
   live: null,
   pick_result: null,
@@ -77,5 +78,26 @@ describe("collapsed row, live game", () => {
     const html = collapsed({ ...ROW, scheduled_start: "2099-01-01T00:00:00Z" });
     expect(html).not.toMatch(/pregame/i);
     expect(html).toContain("Books 61¢");
+  });
+});
+
+describe("collapsed row, stale in-progress row", () => {
+  it("reads Started, not LIVE, seven hours after kickoff", () => {
+    const html = collapsed({
+      ...ROW,
+      scheduled_start: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+      live: live("in_progress"),
+    });
+    expect(html).toContain("Started");
+    expect(html).not.toContain("LIVE");
+  });
+
+  it("still reads LIVE five hours after kickoff", () => {
+    const html = collapsed({
+      ...ROW,
+      scheduled_start: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+      live: live("in_progress"),
+    });
+    expect(html).toContain("LIVE");
   });
 });

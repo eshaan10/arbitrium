@@ -37,7 +37,7 @@ import { SinceLastVisit } from "./SinceLastVisit";
 import { LandingExplainer } from "./LandingExplainer";
 import { PastGames } from "./PastGames";
 import { UnscoreableGroup } from "./UnscoreableGroup";
-import { isLive } from "@/lib/liveState";
+import { gameState, isLive } from "@/lib/liveState";
 import type { Divergence, DivergencesResponse, FinalGame } from "@/lib/types";
 
 /**
@@ -113,7 +113,7 @@ export function Dashboard({
         return 60_000;
       }
       const events = (q.state.data as DivergencesResponse | undefined)?.divergences ?? [];
-      return events.some((d) => isLive(d)) ? 30_000 : 60_000;
+      return events.some((d) => gameState(d) === "live") ? 30_000 : 60_000;
     },
   });
 
