@@ -5,7 +5,6 @@ import { Badge } from "@/components/primitives";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import { Evidence } from "@/components/recommendation/Evidence";
 import { BetControls } from "@/components/recommendation/BetControls";
-import { AdvancedMetrics } from "@/components/advanced/AdvancedMetrics";
 import { Matchup } from "./Matchup";
 import { FavoriteGameButton } from "./FavoriteGameButton";
 import { MoveChip } from "./MoveChip";
@@ -133,10 +132,6 @@ export function EventCard({
         ) : (
           <Evidence d={d} minBooks={minBooks} />
         )}
-      </div>
-
-      <div className="mt-3">
-        <AdvancedMetrics d={d} />
       </div>
 
       {d.live ? (
@@ -377,10 +372,6 @@ function RecommendationCard({
           />
         </div>
       ) : null}
-
-      <div className="mt-3">
-        <AdvancedMetrics d={d} />
-      </div>
 
       {/* --- bet ----------------------------------------------------------- */}
       <div className="mt-4">

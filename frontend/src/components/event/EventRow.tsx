@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { BetControls } from "@/components/recommendation/BetControls";
-import { AdvancedMetrics } from "@/components/advanced/AdvancedMetrics";
 import { InfoPopover } from "@/components/primitives/InfoPopover";
 import { TeamLogo } from "./Matchup";
 import { SignalMeter } from "./Signal";
@@ -319,23 +318,6 @@ function RecommendationRow({
             </div>
 
             <div className="flex min-w-0 flex-col gap-3">
-              {d.live ? (
-                <div className="hidden md:block">
-                  <Scoreboard
-                    home_team={d.home_team}
-                    away_team={d.away_team}
-                    scheduled_start={d.scheduled_start}
-                    sport={d.sport}
-                    live={d.live}
-                    pick_result={d.pick_result}
-                  />
-                </div>
-              ) : null}
-              <p className="text-[13px] leading-relaxed text-muted">
-                Pays $1 if {short} {yes ? "win" : "lose"}. Sportsbooks say{" "}
-                <span className="tabular text-dim">{fairValueCents(r.fair_value, r.price)}</span>{" "}
-                across {books} {books === 1 ? "sportsbook" : "sportsbooks"}.
-              </p>
               <span className="relative z-20 inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
                 <span>
                   Strength: <span className="font-medium text-text">{conf.label}</span>
@@ -349,7 +331,18 @@ function RecommendationRow({
                 ) : null}
                 {move ? <MoveChip move={move} /> : null}
               </span>
-              <AdvancedMetrics d={d} />
+              {d.live ? (
+                <div className="hidden md:block">
+                  <Scoreboard
+                    home_team={d.home_team}
+                    away_team={d.away_team}
+                    scheduled_start={d.scheduled_start}
+                    sport={d.sport}
+                    live={d.live}
+                    pick_result={d.pick_result}
+                  />
+                </div>
+              ) : null}
 
               <RowLinks d={d} kalshi={kalshi} onOpen={onOpen} className="mt-auto" />
             </div>
