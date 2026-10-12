@@ -57,7 +57,15 @@ export function EventRow({
   return <RecommendationRow {...props} r={r} open={open} onToggle={onToggle} />;
 }
 
-function Logos({ d, size, cutout }: { d: Divergence; size: number; cutout: string }) {
+export function Logos({
+  d,
+  size,
+  cutout,
+}: {
+  d: Pick<Divergence, "home_team" | "away_team">;
+  size: number;
+  cutout: string;
+}) {
   const { home, away, homeAccent, awayAccent } = matchupVisuals(d.home_team, d.away_team);
   return (
     <span aria-hidden className="flex shrink-0 items-center">
@@ -69,7 +77,7 @@ function Logos({ d, size, cutout }: { d: Divergence; size: number; cutout: strin
   );
 }
 
-function matchupText(d: Divergence): string {
+export function matchupText(d: Pick<Divergence, "home_team" | "away_team">): string {
   const away = teamVisual(d.away_team)?.short ?? d.away_team;
   const home = teamVisual(d.home_team)?.short ?? d.home_team;
   return `${away} @ ${home}`;
@@ -131,7 +139,7 @@ function Books({
  * One tag for both greyed numbers once the game is on. Spelling "Pregame" into
  * each label made them too wide for their slots, and they ran into each other.
  */
-function PregameTag() {
+export function PregameTag() {
   return (
     <span className="shrink-0 whitespace-nowrap rounded-sm border border-border px-1 text-micro text-faint">
       pregame
@@ -186,7 +194,7 @@ function StatusLine({
   return <KickoffTime iso={d.scheduled_start} separator={separator} />;
 }
 
-function Chevron({ open }: { open: boolean }) {
+export function Chevron({ open }: { open: boolean }) {
   return (
     <svg
       aria-hidden

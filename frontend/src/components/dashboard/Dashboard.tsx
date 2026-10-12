@@ -9,7 +9,8 @@ import {
   LIST_LIMIT,
   queryKeys,
 } from "@/lib/api";
-import { groupEvents, type Group } from "@/lib/grouping";
+import { GROUP_LABELS, groupEvents, type Group } from "@/lib/grouping";
+import { capFinals } from "@/lib/finals";
 import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
 import { browseAllHref, sportTabs } from "@/lib/sports";
 import { matchesTeamQuery } from "@/lib/teams";
@@ -27,6 +28,7 @@ import { shouldFold, splitFoldable } from "@/lib/fold";
 import { noEdgeCopy } from "@/lib/copy";
 import { EventCard } from "@/components/event/EventCard";
 import { EventRow } from "@/components/event/EventRow";
+import { FinalRow } from "@/components/event/FinalRow";
 import { EmptyState } from "@/components/primitives";
 import { type View } from "./Controls";
 import { Toolbar } from "./Toolbar";
@@ -36,7 +38,7 @@ import { LandingExplainer } from "./LandingExplainer";
 import { PastGames } from "./PastGames";
 import { UnscoreableGroup } from "./UnscoreableGroup";
 import { isLive } from "@/lib/liveState";
-import type { Divergence, DivergencesResponse } from "@/lib/types";
+import type { Divergence, DivergencesResponse, FinalGame } from "@/lib/types";
 
 /**
  * Page rhythm, deliberately uneven:
@@ -72,6 +74,8 @@ export function Dashboard({
   const [openRow, setOpenRow] = useState<string | null>(null);
   // "Show N more" in Today, which expands in place until the page is left.
   const [todayExpanded, setTodayExpanded] = useState(false);
+  // "Show N more" under the finished games, likewise.
+  const [finalsExpanded, setFinalsExpanded] = useState(false);
 
   const {
     followedTeams,
@@ -134,6 +138,7 @@ export function Dashboard({
   });
 
   const all = useMemo(() => data?.divergences ?? [], [data]);
+  const finals = useMemo(() => data?.recent_finals ?? [], [data]);
   const moves = useMemo(() => netMovesByEvent(activity), [activity]);
   usePriceFlash(all, dataUpdatedAt);
 
@@ -164,9 +169,9 @@ export function Dashboard({
   // and neither list implies the other.
   const followedSet = new Set(followedTeams);
   const gameSet = new Set(pinnedIds);
-  const hasFollowedTeam = (d: Divergence) =>
+  const hasFollowedTeam = (d: Pick<Divergence, "home_team" | "away_team">) =>
     followedSet.has(d.home_team ?? "") || followedSet.has(d.away_team ?? "");
-  const isPinnedGame = (d: Divergence) => gameSet.has(d.event_id);
+  const isPinnedGame = (d: Pick<Divergence, "event_id">) => gameSet.has(d.event_id);
 
   const counts: Record<View, number> = {
     all: all.length,
@@ -197,6 +202,18 @@ export function Dashboard({
   const visible = all.filter(
     (d) => matchesView(d) && matchesTeamQuery(search, d.home_team, d.away_team),
   );
+  // Finished games carry no edge, so they belong only to the views that are
+  // about whole games rather than prices.
+  const matchesFinalView = (f: FinalGame) => {
+    if (view === "all") return true;
+    if (view === "my-teams") return hasFollowedTeam(f);
+    if (view === "my-games") return isPinnedGame(f);
+    return false;
+  };
+  const visibleFinals = finals.filter(
+    (f) => matchesFinalView(f) && matchesTeamQuery(search, f.home_team, f.away_team),
+  );
+
   // One scale for every meter on the page, so two rows' meters compare
   // honestly even when they sit in different sections.
   const scale = signalScale(visible);
@@ -208,6 +225,12 @@ export function Dashboard({
     visible,
     isClient ? dataUpdatedAt || serverNow : serverNow,
   );
+  // Finished games live in "In progress or past" after the live ones, so the
+  // section exists whenever there are any, even with nothing in progress.
+  if (visibleFinals.length > 0 && !groups.some((g) => g.key === "started")) {
+    groups.unshift({ key: "started", label: GROUP_LABELS.started, events: [] });
+  }
+  const finalsShown = capFinals(visibleFinals, finalsExpanded);
 
   const foldUnscoreable = shouldFold(view, search);
 
@@ -238,6 +261,16 @@ export function Dashboard({
       arb: ev.is_arbitrage,
     });
 
+  const recordFinalOpen = (f: FinalGame) =>
+    record({
+      id: f.event_id,
+      home: f.home_team,
+      away: f.away_team,
+      sport: f.sport,
+      rec: null,
+      arb: false,
+    });
+
   return (
     <div className="space-y-10">
       <LandingExplainer />
@@ -257,7 +290,7 @@ export function Dashboard({
           favoriteGameCount={pinnedIds.length}
           search={search}
           onSearch={setSearch}
-          resultCount={visible.length}
+          resultCount={visible.length + visibleFinals.length}
           stamp={stamp}
         />
 
@@ -305,7 +338,7 @@ export function Dashboard({
                         folded away. The fold states its own number; a header
                         that silently shrank would misreport the feed. */}
                     <span className="tabular text-micro font-normal text-faint">
-                      {group.events.length}
+                      {group.events.length + (group.key === "started" ? visibleFinals.length : 0)}
                     </span>
                   </h2>
                   {density === "rows" ? (
@@ -357,6 +390,31 @@ export function Dashboard({
                       {todayExpanded
                         ? "Show fewer"
                         : `Show ${more} more ${more === 1 ? "game" : "games"}`}
+                    </button>
+                  ) : null}
+                  {group.key === "started" && visibleFinals.length > 0 ? (
+                    <div className={`flex flex-col gap-2 ${shown.length > 0 ? "mt-2" : ""}`}>
+                      {finalsShown.shown.map((f) => (
+                        <FinalRow
+                          key={f.event_id}
+                          f={f}
+                          open={openRow === f.event_id}
+                          onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                          onOpen={recordFinalOpen}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {group.key === "started" && finalsShown.more > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={finalsExpanded}
+                      onClick={() => setFinalsExpanded((v) => !v)}
+                      className="tap mt-3 rounded-sm px-1 text-[13px] font-medium text-signal-600 underline-offset-4 hover:underline"
+                    >
+                      {finalsExpanded
+                        ? "Show fewer"
+                        : `Show ${finalsShown.more} more ${finalsShown.more === 1 ? "game" : "games"}`}
                     </button>
                   ) : null}
                   <UnscoreableGroup events={folded} minBooks={minBooks} />

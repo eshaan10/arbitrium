@@ -92,6 +92,35 @@ export interface Live {
 
 export type PickResult = "hit" | "miss" | null;
 
+/** The call as it was flagged before the game: the snapshot a settled game shows. */
+export interface Flagged {
+  team: string;
+  side: "yes" | "no";
+  /** What the chosen contract cost on Kalshi when the call was made. */
+  price: number | null;
+  /** Sportsbook consensus for that same contract at the time. */
+  fair_value: number;
+  flagged_at: string;
+}
+
+/** A game that finished in the last seven days (DivergencesResponse.recent_finals). */
+export interface FinalGame {
+  event_id: string;
+  sport: string | null;
+  league: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  scheduled_start: string;
+  home_score: number;
+  away_score: number;
+  /** Null on a tie. */
+  winner_team: string | null;
+  kalshi_event_ticker: string | null;
+  live: Live | null;
+  pick_result: PickResult;
+  flagged: Flagged | null;
+}
+
 export interface Divergence {
   event_id: string;
   sport: string | null;
@@ -127,6 +156,8 @@ export interface DivergencesResponse {
   tradeable_count: number;
   arbitrage_count: number;
   divergences: Divergence[];
+  /** Newest first. Absent from an older backend, so read with `?? []`. */
+  recent_finals?: FinalGame[];
 }
 
 export interface HistoryPoint {
@@ -311,6 +342,7 @@ export interface EventRecord {
   kalshi_event_ticker?: string | null;
   live?: Live | null;
   pick_result?: PickResult;
+  flagged?: Flagged | null;
 }
 
 export interface EventsLookupResponse {
