@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import text
+
 from arbitrium.api.main import activity
 from arbitrium.db.models import Event, OddsSnapshot
 
@@ -127,7 +129,16 @@ def test_a_move_at_the_window_edge_still_reports_where_it_came_from(db_session):
 
 
 def test_movers_need_more_than_one_observation_and_carry_their_swing(db_session):
+    # Movers are the top N swings across the whole feed, and on a live table a
+    # market settling to 0 or 100 outswings anything a fixture can plant. So
+    # this test clears the window of every other event's rows, inside the
+    # rolled-back transaction, instead of hoping to rank.
     ev = _event(db_session)
+    db_session.execute(
+        text("DELETE FROM odds_snapshots WHERE event_id <> :id "
+             "AND snapshot_time >= now() - interval '25 hours'"),
+        {"id": ev.id},
+    )
     _snap(db_session, ev, 0.40, 100)
     _snap(db_session, ev, 0.62, 50)
 

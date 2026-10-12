@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import text
 
 from arbitrium.api.main import divergences, event_detail
 from arbitrium.db.models import CalibrationHistory, Event, EventLiveState, OddsSnapshot
@@ -229,6 +230,22 @@ class _StubClient:
         pass
 
 
+@pytest.fixture
+def no_other_games(db_session):
+    """Hide every pre-existing event from the cadence and window queries.
+
+    Those queries look at the whole sport, so on a database with real games
+    (the local dev stack, mid-season) "no games nearby" is false and these tests
+    measured the data rather than the code. Relabelling the sport inside the
+    rolled-back transaction hides them without touching anything for real.
+    """
+    db_session.execute(text(
+        "UPDATE events SET sport = 'hidden-by-test:' || sport "
+        "WHERE sport NOT LIKE 'hidden-by-test:%'"
+    ))
+    return db_session
+
+
 def _game(db_session, *, sport="nfl", home="Kansas City Chiefs",
           away="Denver Broncos", start, status="scheduled"):
     ev = Event(
@@ -241,7 +258,7 @@ def _game(db_session, *, sport="nfl", home="Kansas City Chiefs",
     return ev
 
 
-def test_idle_window_makes_zero_espn_calls(db_session):
+def test_idle_window_makes_zero_espn_calls(db_session, no_other_games):
     # DB has no NFL games anywhere nearby.
     now = datetime.now(UTC)
     stub = _StubClient([_nfl_payload()])
@@ -278,7 +295,7 @@ def test_live_window_triggers_poll_and_upsert(db_session):
     assert row.status == LIVE_STATUS_IN_PROGRESS
 
 
-def test_cadence_live_vs_scheduled_vs_idle(db_session):
+def test_cadence_live_vs_scheduled_vs_idle(db_session, no_other_games):
     now = datetime.now(UTC)
     # No games -> idle (returns None).
     assert compute_cadence_seconds(db_session, "nfl", now=now) is None
@@ -308,7 +325,9 @@ def test_upsert_is_idempotent(db_session):
     run_pass("nfl", session_factory=_factory, client=stub, now=now)
     run_pass("nfl", session_factory=_factory, client=stub, now=now)
     from sqlalchemy import select as _select
-    rows = db_session.execute(_select(EventLiveState)).scalars().all()
+    rows = db_session.execute(
+        _select(EventLiveState).where(EventLiveState.event_id == ev.id)
+    ).scalars().all()
     assert len(rows) == 1
 
 
