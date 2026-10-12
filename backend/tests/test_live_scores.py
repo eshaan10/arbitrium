@@ -358,6 +358,96 @@ def test_unmatched_espn_game_is_skipped_and_logged(db_session, caplog):
     assert any("no matching event row" in m for m in caplog.messages)
 
 
+# ---------- live-window bounds -----------------------------------------------
+
+
+def _stored(db_session, ev, state, *, updated_at):
+    """A live-state row exactly as _upsert would write ``state``, aged by hand.
+
+    Inserted rather than updated: the updated_at trigger only fires on UPDATE,
+    so this is the one way to plant an old timestamp.
+    """
+    row = EventLiveState(
+        event_id=ev.id, updated_at=updated_at,
+        **{c: getattr(state, c) for c in live_scores._LIVE_COLUMNS},
+    )
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def _final_state(start):
+    return extract_live_state(_nfl_payload(
+        status_name="STATUS_FINAL", state="post", completed=True,
+        date=start.strftime("%Y-%m-%dT%H:%MZ"), situation=False,
+    ), "nfl")
+
+
+def test_unchanged_write_leaves_updated_at_alone(db_session):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=3))
+    went_final = now - timedelta(minutes=40)
+    state = _final_state(ev.scheduled_start)
+    _stored(db_session, ev, state, updated_at=went_final)
+
+    live_scores._upsert(db_session, ev.id, state)
+    db_session.expire_all()
+    assert db_session.get(EventLiveState, ev.id).updated_at == went_final
+
+
+def test_changed_write_refreshes_updated_at(db_session):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=3))
+    state = _final_state(ev.scheduled_start)
+    _stored(db_session, ev, state, updated_at=now - timedelta(minutes=40))
+
+    from dataclasses import replace
+    live_scores._upsert(db_session, ev.id, replace(state, home_score=24))
+    db_session.expire_all()
+    row = db_session.get(EventLiveState, ev.id)
+    assert row.home_score == 24
+    assert row.updated_at > now - timedelta(minutes=5)
+
+
+def test_post_final_window_closes_30_minutes_after_the_final(db_session, no_other_games):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=3))
+    state = _final_state(ev.scheduled_start)
+    _stored(db_session, ev, state, updated_at=now - timedelta(minutes=10))
+    assert compute_cadence_seconds(db_session, "nfl", now=now) == CADENCE_LIVE_SECONDS
+
+    # A poll re-reads the same final; it must not restart the clock. Half an
+    # hour on, the game has been final for 40 minutes and the window is shut.
+    live_scores._upsert(db_session, ev.id, state)
+    db_session.expire_all()
+    assert compute_cadence_seconds(db_session, "nfl", now=now + timedelta(minutes=30)) is None
+
+
+def test_scheduled_row_counts_until_four_hours_after_kickoff(db_session, no_other_games):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=2))
+    db_session.add(EventLiveState(event_id=ev.id, status=LIVE_STATUS_SCHEDULED))
+    db_session.flush()
+    assert compute_cadence_seconds(db_session, "nfl", now=now) == CADENCE_LIVE_SECONDS
+
+
+def test_stale_scheduled_row_drops_out_of_the_live_window(db_session, no_other_games):
+    now = datetime.now(UTC)
+    ev = _game(db_session, start=now - timedelta(hours=5))
+    db_session.add(EventLiveState(event_id=ev.id, status=LIVE_STATUS_SCHEDULED))
+    db_session.flush()
+    assert compute_cadence_seconds(db_session, "nfl", now=now) is None
+
+
+def test_postponed_row_never_holds_a_fast_cadence(db_session, no_other_games):
+    now = datetime.now(UTC)
+    # Inside the pre-kickoff window, and within today: neither may count.
+    ev = _game(db_session, start=now + timedelta(minutes=10))
+    db_session.add(EventLiveState(event_id=ev.id, status=LIVE_STATUS_POSTPONED))
+    db_session.flush()
+    assert compute_cadence_seconds(db_session, "nfl", now=now) is None
+
+
 # ---------- upcoming games ---------------------------------------------------
 
 # Far from any real fixture in the dev database, so matching sees only ours.
@@ -437,6 +527,24 @@ def test_upcoming_pass_never_touches_live_rows(db_session):
     assert row.status == LIVE_STATUS_IN_PROGRESS
     assert (row.home_score, row.away_score) == (14, 7)
     assert row.broadcast == "FOX"
+
+
+def test_upcoming_pass_picks_up_a_postponed_game_listed_again(db_session):
+    start = FUTURE + timedelta(days=2)
+    ev = _game(db_session, home="Denver Broncos", away="Seattle Seahawks", start=start)
+    db_session.add(EventLiveState(event_id=ev.id, status=LIVE_STATUS_POSTPONED, broadcast="CBS"))
+    db_session.flush()
+    stub = _StubClient([_scheduled_payload(
+        start=start, home="Denver Broncos", away="Seattle Seahawks", espn_id="pp-1")])
+
+    result = run_upcoming_pass("nfl", session_factory=_session(db_session),
+                               client=stub, now=FUTURE)
+
+    assert result.rows_written == 1
+    db_session.expire_all()
+    row = db_session.get(EventLiveState, ev.id)
+    assert row.status == LIVE_STATUS_SCHEDULED
+    assert row.broadcast == "Prime Video"
 
 
 def test_upcoming_pass_makes_zero_calls_with_no_games_ahead(db_session):

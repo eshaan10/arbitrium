@@ -68,6 +68,10 @@ LIVE_WINDOW_POST_FINAL = timedelta(minutes=30)
 # before we stop treating it as "in a live window" purely on the strength of
 # its scheduled start (used when ESPN has never written a live_state row).
 MAX_GAME_DURATION = timedelta(hours=6)
+# A row still "scheduled" this long after kickoff is stale (ESPN moved the game,
+# or stopped listing it), not a game about to start. Past it the row stops
+# holding the 30s cadence and only the hourly upcoming pass revisits it.
+SCHEDULED_STALE_AFTER = timedelta(hours=4)
 
 CADENCE_LIVE_SECONDS = 30
 CADENCE_SCHEDULED_SECONDS = 900
@@ -77,16 +81,22 @@ UPCOMING_DAYS = 7
 CADENCE_UPCOMING_SECONDS = 3600
 
 
-_ACTIVE_STATUSES = (
-    LIVE_STATUS_SCHEDULED,
-    LIVE_STATUS_IN_PROGRESS,
-    LIVE_STATUS_HALFTIME,
-    LIVE_STATUS_POSTPONED,
-)
+_IN_PLAY_STATUSES = (LIVE_STATUS_IN_PROGRESS, LIVE_STATUS_HALFTIME)
 
 
 def _has_live_window(db: Session, sport: str, now: datetime) -> bool:
-    """True if any event of ``sport`` is inside its live window right now."""
+    """True if any event of ``sport`` is inside its live window right now.
+
+    By stored status:
+
+    * in progress / halftime: always, until ESPN says otherwise.
+    * scheduled: from 15 minutes before kickoff to 4 hours after it.
+    * final: for 30 minutes after the row went final. ``updated_at`` marks the
+      last real change because the upsert skips identical writes; if every
+      poll touched it, the window would restart on each pass and never close.
+    * postponed: never. It waits for the hourly upcoming pass.
+    * no row yet: up to ``MAX_GAME_DURATION`` after kickoff.
+    """
     window_start = now - MAX_GAME_DURATION
     rows = db.execute(
         select(Event.id, EventLiveState.status, EventLiveState.updated_at)
@@ -96,7 +106,11 @@ def _has_live_window(db: Session, sport: str, now: datetime) -> bool:
             Event.scheduled_start - LIVE_WINDOW_PRE_KICKOFF <= now,
             or_(
                 EventLiveState.status.is_(None),
-                EventLiveState.status.in_(_ACTIVE_STATUSES),
+                EventLiveState.status.in_(_IN_PLAY_STATUSES),
+                and_(
+                    EventLiveState.status == LIVE_STATUS_SCHEDULED,
+                    Event.scheduled_start + SCHEDULED_STALE_AFTER >= now,
+                ),
                 and_(
                     EventLiveState.status == LIVE_STATUS_FINAL,
                     EventLiveState.updated_at + LIVE_WINDOW_POST_FINAL >= now,
@@ -116,12 +130,18 @@ def _has_live_window(db: Session, sport: str, now: datetime) -> bool:
 
 
 def _has_scheduled_today(db: Session, sport: str, now: datetime) -> bool:
-    """True if the sport has any scheduled game within the next 24h."""
+    """True if the sport has a game within the next 24h that is not postponed."""
     row = db.execute(
-        select(Event.id).where(
+        select(Event.id)
+        .join(EventLiveState, EventLiveState.event_id == Event.id, isouter=True)
+        .where(
             Event.sport == sport,
             Event.scheduled_start >= now,
             Event.scheduled_start < now + timedelta(hours=24),
+            or_(
+                EventLiveState.status.is_(None),
+                EventLiveState.status != LIVE_STATUS_POSTPONED,
+            ),
         ).limit(1)
     ).first()
     return row is not None
@@ -180,6 +200,13 @@ def _match_candidates(
     ]
 
 
+_LIVE_COLUMNS = (
+    "status", "period", "clock", "detail", "home_score", "away_score",
+    "home_record", "away_record", "venue", "broadcast", "possession_side",
+    "down_distance", "last_play", "linescore",
+)
+
+
 def _upsert(db: Session, event_id, state: LiveState) -> None:
     stmt = pg_insert(EventLiveState).values(
         event_id=event_id,
@@ -216,6 +243,13 @@ def _upsert(db: Session, event_id, state: LiveState) -> None:
             "last_play": stmt.excluded.last_play,
             "linescore": stmt.excluded.linescore,
         },
+        # Only when something changed. The updated_at trigger fires on every
+        # UPDATE, so rewriting an unchanged final row each pass would keep
+        # restarting the post-final window (see _has_live_window).
+        where=or_(*(
+            getattr(EventLiveState, col).is_distinct_from(getattr(stmt.excluded, col))
+            for col in _LIVE_COLUMNS
+        )),
     )
     db.execute(stmt)
 
@@ -223,8 +257,9 @@ def _upsert(db: Session, event_id, state: LiveState) -> None:
 def _upsert_scheduled(db: Session, event_id, state: LiveState) -> bool:
     """Write a scheduled row's metadata. True if a row was inserted or updated.
 
-    The conflict update only fires while the stored row is still ``scheduled``,
-    so an hourly fetch can never roll a live or final game back.
+    The conflict update only fires while the stored row is ``scheduled`` or
+    ``postponed``, so an hourly fetch can never roll a live or final game back,
+    and a postponed game ESPN lists again picks up its new details here.
     """
     stmt = pg_insert(EventLiveState).values(
         event_id=event_id,
@@ -238,6 +273,7 @@ def _upsert_scheduled(db: Session, event_id, state: LiveState) -> bool:
     stmt = stmt.on_conflict_do_update(
         index_elements=[EventLiveState.event_id],
         set_={
+            "status": stmt.excluded.status,
             "detail": stmt.excluded.detail,
             "home_record": stmt.excluded.home_record,
             "away_record": stmt.excluded.away_record,
@@ -245,7 +281,7 @@ def _upsert_scheduled(db: Session, event_id, state: LiveState) -> bool:
             "broadcast": stmt.excluded.broadcast,
             "updated_at": func.now(),
         },
-        where=EventLiveState.status == LIVE_STATUS_SCHEDULED,
+        where=EventLiveState.status.in_((LIVE_STATUS_SCHEDULED, LIVE_STATUS_POSTPONED)),
     ).returning(EventLiveState.event_id)
     # RETURNING, not rowcount: a conflict the WHERE turns away returns no row.
     return db.execute(stmt).first() is not None
