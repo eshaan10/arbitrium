@@ -237,6 +237,7 @@ def record_prediction(
     entry_prob: float,
     flagged_at: datetime,
     origin: str,
+    side: str | None = None,
     first_wins: bool = False,
 ) -> bool:
     """Write one prediction. ONE ROW PER (event, origin) — never per team.
@@ -256,6 +257,7 @@ def record_prediction(
     values = dict(
         event_id=event_id,
         subject_team=subject_team,
+        side=side,
         predicted_prob=predicted_prob,
         divergence_score=divergence_score,
         confidence_band=band,
@@ -353,6 +355,7 @@ def record_live_recommendations(session: Session, *, now: datetime | None = None
             session,
             event_id=event.id,
             subject_team=rec.team,
+            side=rec.side,
             predicted_prob=rec.fair_value,
             divergence_score=abs(rec.fair_value - rec.price),
             band=confidence_band(books, rec.max_contracts),
@@ -365,6 +368,34 @@ def record_live_recommendations(session: Session, *, now: datetime | None = None
     return written
 
 
+def backfill_sides(session: Session) -> int:
+    """Fill ``side`` on rows written before it was recorded.
+
+    Replays the recommendation from the snapshots as of ``flagged_at``, which is
+    exactly what the live pass saw, and accepts the side only when the replay
+    reproduces the stored team and entry price. Anything else stays NULL: an
+    unknown side is reported as unknown, never guessed.
+    """
+    rows = session.execute(
+        select(CalibrationHistory).where(CalibrationHistory.side.is_(None))
+    ).scalars().all()
+
+    filled = 0
+    for record in rows:
+        kalshi, consensus = _quotes_at(session, record.event_id, record.flagged_at)
+        rec = kalshi_recommendation(kalshi, consensus) if kalshi and consensus else None
+        if (
+            rec is None
+            or rec.team != record.subject_team
+            or record.entry_prob is None
+            or abs(rec.price - float(record.entry_prob)) > 1e-4
+        ):
+            continue
+        record.side = rec.side
+        filled += 1
+    return filled
+
+
 def run_calibration(session_factory=None) -> dict:
     """One calibration pass: record live calls, then grade whatever has resolved.
 
@@ -375,9 +406,10 @@ def run_calibration(session_factory=None) -> dict:
     from arbitrium.db.engine import get_session
 
     session = (session_factory or get_session)()
-    counts = {"live_recorded": 0, "graded": 0}
+    counts = {"live_recorded": 0, "sides_backfilled": 0, "graded": 0}
     try:
         counts["live_recorded"] = record_live_recommendations(session)
+        counts["sides_backfilled"] = backfill_sides(session)
         counts["graded"] = grade_pending(session)
         session.commit()
     finally:
@@ -404,6 +436,7 @@ def backfill_reconstructions(session: Session) -> int:
             session,
             event_id=event.id,
             subject_team=call.team,
+            side=call.side,
             predicted_prob=call.fair_value,
             divergence_score=abs(call.fair_value - call.entry_prob),
             band=confidence_band(call.n_books, None),

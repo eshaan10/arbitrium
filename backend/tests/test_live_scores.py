@@ -260,7 +260,7 @@ def test_idle_window_makes_zero_espn_calls(db_session):
 
 def test_live_window_triggers_poll_and_upsert(db_session):
     now = datetime.now(UTC)
-    _game(db_session, start=now - timedelta(minutes=30))
+    ev = _game(db_session, start=now - timedelta(minutes=30))
     stub = _StubClient([_nfl_payload(date=(now - timedelta(minutes=30)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"))])
 
@@ -273,8 +273,7 @@ def test_live_window_triggers_poll_and_upsert(db_session):
     result = run_pass("nfl", session_factory=_factory, client=stub, now=now)
     assert stub.calls >= 1
     assert result.rows_written == 1
-    from sqlalchemy import select as _select
-    row = db_session.execute(_select(EventLiveState)).scalars().first()
+    row = db_session.get(EventLiveState, ev.id)
     assert row is not None
     assert row.status == LIVE_STATUS_IN_PROGRESS
 
@@ -459,11 +458,11 @@ def _priced(db_session, *, status="scheduled", start=None, winner_team=None, hom
     return ev
 
 
-def _add_pick(db_session, ev, subject_team):
+def _add_pick(db_session, ev, subject_team, side="yes"):
     db_session.add(CalibrationHistory(
         event_id=ev.id,
         divergence_score=0.1, predicted_prob=0.6, confidence_band="moderate",
-        origin="live", subject_team=subject_team,
+        origin="live", subject_team=subject_team, side=side,
         flagged_at=ev.scheduled_start - timedelta(days=1),
     ))
     db_session.flush()

@@ -141,6 +141,10 @@ class CalibrationHistory(Base):
     # Canonical team the prediction is ABOUT, so the row stays auditable after a
     # home/away re-label. See migration 0008.
     subject_team: Mapped[str | None] = mapped_column(String)
+    # 'yes' or 'no': the contract bought on subject_team's market. A 'no' call
+    # predicts that subject_team LOSES. NULL on rows written before 0012 that
+    # the replay could not reproduce.
+    side: Mapped[str | None] = mapped_column(String)
     # Closing-line value: what Kalshi charged when the call was made vs its last
     # price before kickoff. Needs no outcome, so it reports months earlier.
     entry_prob: Mapped[float | None] = mapped_column(Numeric(6, 4))

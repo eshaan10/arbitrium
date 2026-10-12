@@ -253,18 +253,116 @@ def _live_payload(state: EventLiveState | None) -> dict | None:
     }
 
 
-def _pick_result(event: Event, pick: CalibrationHistory | None) -> str | None:
-    """"hit" | "miss" | null for a final event that had a live recommendation.
+RECENT_FINALS_DAYS = 7
 
-    Reuses the same (subject_team vs winner_team) comparison as the calibration
-    grader. Null when the event is not final, has no winner, or had no live
-    recommendation on record.
+
+def _final_result(
+    event: Event, live: EventLiveState | None
+) -> tuple[int, int, str | None] | None:
+    """(home_score, away_score, winner_team) once a game is over, else None.
+
+    The resolved event wins. Until resolution has run (it is periodic, so this
+    can be hours), ESPN's final scoreboard stands in, which is what lets a game
+    leave the live feed at the whistle rather than at the next resolution pass.
+    A tie has no winner.
     """
-    if pick is None or event.status != "final" or event.winner_team is None:
+    if event.status == "final" and event.home_score is not None and event.away_score is not None:
+        return event.home_score, event.away_score, event.winner_team
+    if (live is not None and live.status == "final"
+            and live.home_score is not None and live.away_score is not None):
+        h, a = live.home_score, live.away_score
+        winner = event.home_team if h > a else event.away_team if a > h else None
+        return h, a, winner
+    return None
+
+
+def _pick_result(
+    event: Event, pick: CalibrationHistory | None, live: EventLiveState | None = None
+) -> str | None:
+    """"hit" | "miss" | null for a finished event that had a live recommendation.
+
+    Side-aware: a Buy No call on a team hits when that team LOSES. Null when the
+    game is not over, ended in a tie, had no live call, or the call's side was
+    never recorded (see migration 0012).
+    """
+    result = _final_result(event, live)
+    if pick is None or result is None or result[2] is None:
         return None
-    if not pick.subject_team:
+    if not pick.subject_team or pick.side not in ("yes", "no"):
         return None
-    return "hit" if pick.subject_team == event.winner_team else "miss"
+    team_won = result[2] == pick.subject_team
+    return "hit" if team_won == (pick.side == "yes") else "miss"
+
+
+def _flagged_payload(pick: CalibrationHistory | None) -> dict | None:
+    """The call as it was flagged: the pre-game snapshot a settled game shows.
+
+    ``price`` is what the chosen contract cost on Kalshi at the time and
+    ``fair_value`` the sportsbook consensus for that same contract, the same
+    pair a live recommendation carries. Null without a side, since the call
+    cannot be stated without one.
+    """
+    if pick is None or not pick.subject_team or pick.side not in ("yes", "no"):
+        return None
+    return {
+        "team": pick.subject_team,
+        "side": pick.side,
+        "price": _r(float(pick.entry_prob)) if pick.entry_prob is not None else None,
+        "fair_value": _r(float(pick.predicted_prob)),
+        "flagged_at": pick.flagged_at.isoformat(),
+    }
+
+
+def _final_payload(
+    event: Event, live: EventLiveState | None, pick: CalibrationHistory | None
+) -> dict:
+    """One finished game for the dashboard's "In progress or past" section."""
+    home_score, away_score, winner = _final_result(event, live)  # type: ignore[misc]
+    return {
+        "event_id": str(event.id),
+        "sport": event.sport,
+        "league": event.league,
+        "home_team": event.home_team,
+        "away_team": event.away_team,
+        "scheduled_start": event.scheduled_start.isoformat(),
+        "home_score": home_score,
+        "away_score": away_score,
+        "winner_team": winner,
+        "kalshi_event_ticker": event.kalshi_event_ticker,
+        "live": _live_payload(live),
+        "pick_result": _pick_result(event, pick, live),
+        "flagged": _flagged_payload(pick),
+    }
+
+
+def _recent_finals(
+    db: Session, *, sport: str | None, now: datetime
+) -> list[dict]:
+    """Games that finished in the last ``RECENT_FINALS_DAYS``, newest first.
+
+    Finished means resolved, or final on ESPN's scoreboard and awaiting
+    resolution. Built from stored rows only: no Kalshi price (a settled market
+    sits at 0 or 100) and no Odds API call.
+    """
+    stmt = (
+        select(Event, EventLiveState)
+        .join(EventLiveState, EventLiveState.event_id == Event.id, isouter=True)
+        .where(
+            Event.scheduled_start >= now - timedelta(days=RECENT_FINALS_DAYS),
+            Event.scheduled_start <= now,
+            (Event.status == "final") | (EventLiveState.status == "final"),
+        )
+        .order_by(Event.scheduled_start.desc(), Event.id)
+    )
+    if sport:
+        stmt = stmt.where(Event.sport == sport)
+    rows = db.execute(stmt).all()
+    _, pick_by_id, _ = _live_and_pick_by_event(db, [e.id for e, _ in rows])
+    return [
+        _final_payload(e, live, pick_by_id.get(e.id))
+        for e, live in rows
+        if _final_result(e, live) is not None
+    ]
 
 
 def _live_and_pick_by_event(
@@ -462,12 +560,22 @@ def divergences(
         db, sport=sport, status=status, min_divergence=min_divergence,
         tradeable_only=tradeable_only, limit=limit,
     )
-    counts: dict[str, int] = {}
-    for r in results:
-        counts[r.status.value] = counts.get(r.status.value, 0) + 1
     live_by_id, pick_by_id, event_by_id = _live_and_pick_by_event(
         db, [r.event_id for r in results]
     )
+    # A game ESPN calls final but resolution has not reached yet is still
+    # "scheduled" in events. It moves to recent_finals now: its Kalshi market
+    # is settling toward 0 or 100, so a divergence computed from it is noise.
+    results = [
+        r for r in results
+        if (live_by_id.get(r.event_id) is None
+            or live_by_id[r.event_id].status != "final")
+    ]
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r.status.value] = counts.get(r.status.value, 0) + 1
+    # Finished games carry no divergence, so a filter on one excludes them all.
+    scored_filter = status is not None or min_divergence is not None or tradeable_only
     return {
         "min_consensus_books": settings.min_consensus_books,
         "count": len(results),
@@ -479,11 +587,15 @@ def divergences(
                 r,
                 live=live_by_id.get(r.event_id),
                 pick_result=_pick_result(
-                    event_by_id[r.event_id], pick_by_id.get(r.event_id)
+                    event_by_id[r.event_id], pick_by_id.get(r.event_id),
+                    live_by_id.get(r.event_id),
                 ) if r.event_id in event_by_id else None,
             )
             for r in results
         ],
+        "recent_finals": [] if scored_filter else _recent_finals(
+            db, sport=sport, now=datetime.now(timezone.utc)
+        ),
     }
 
 
@@ -544,6 +656,7 @@ def _event_record(
     *,
     live: EventLiveState | None = None,
     pick_result: str | None = None,
+    flagged: dict | None = None,
 ) -> dict:
     """The stored facts about an event, and nothing derived.
 
@@ -571,6 +684,7 @@ def _event_record(
         "kalshi_event_ticker": e.kalshi_event_ticker,
         "live": _live_payload(live),
         "pick_result": pick_result,
+        "flagged": flagged,
     }
 
 
@@ -654,7 +768,8 @@ def events_lookup(
             _event_record(
                 e,
                 live=live_by_id.get(e.id),
-                pick_result=_pick_result(e, pick_by_id.get(e.id)),
+                pick_result=_pick_result(e, pick_by_id.get(e.id), live_by_id.get(e.id)),
+                flagged=_flagged_payload(pick_by_id.get(e.id)),
             )
             for e in rows
         ],
@@ -689,11 +804,12 @@ def event_detail(
     scored = compute_divergences(db, event_id=event_id, limit=1)
     live_by_id, pick_by_id, _ = _live_and_pick_by_event(db, [ev.id])
     live = live_by_id.get(ev.id)
-    pick_result = _pick_result(ev, pick_by_id.get(ev.id))
+    pick_result = _pick_result(ev, pick_by_id.get(ev.id), live)
+    flagged = _flagged_payload(pick_by_id.get(ev.id))
 
     return {
         "min_consensus_books": settings.min_consensus_books,
-        "event": _event_record(ev, live=live, pick_result=pick_result),
+        "event": _event_record(ev, live=live, pick_result=pick_result, flagged=flagged),
         "divergence": (
             _divergence_payload(scored[0], live=live, pick_result=pick_result)
             if scored else None
