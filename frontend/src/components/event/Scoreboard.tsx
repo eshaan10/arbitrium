@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { TeamLogo } from "./Matchup";
-import { matchupVisuals, teamVisual } from "@/lib/teams";
-import { countdownTo, updatedAgo, gameState } from "@/lib/liveState";
+import { matchupVisuals, teamInitials, teamVisual } from "@/lib/teams";
+import { countdownTo, gameState } from "@/lib/liveState";
 import type { Live, PickResult } from "@/lib/types";
 
 interface ScoreboardProps {
@@ -27,7 +27,6 @@ function LiveDot({ className = "" }: { className?: string }) {
 function Side({
   name,
   short,
-  side,
   visual,
   accent,
   record,
@@ -35,14 +34,13 @@ function Side({
 }: {
   name: string | null;
   short: string;
-  side: "home" | "away";
   visual: ReturnType<typeof teamVisual>;
   accent: string;
   record: string | null;
   possession: boolean;
 }) {
   return (
-    <div className={`flex min-w-0 flex-col items-center gap-1 ${side === "away" ? "" : ""}`}>
+    <div className="flex min-w-0 flex-col items-center gap-1">
       <TeamLogo visual={visual} name={name} accent={accent} size={44} cutout="var(--surface)" />
       <div className="flex items-center gap-1 text-[13px] font-medium text-text">
         <span className="truncate">{short}</span>
@@ -53,46 +51,55 @@ function Side({
   );
 }
 
-function Linescore({ linescore }: { linescore: { home: number[]; away: number[] } }) {
+/** "BAL", from the registry's ESPN abbreviation; initials for an unknown team. */
+function abbreviation(name: string | null): string {
+  return (teamVisual(name)?.abbr ?? teamInitials(name)).toUpperCase();
+}
+
+/** The total column is ruled off from the periods so it never reads as one more. */
+const TOTAL_CELL = "border-l border-border pl-3 pr-1 text-right";
+
+function Linescore({
+  linescore,
+  labels,
+}: {
+  linescore: { home: number[]; away: number[] };
+  labels: { home: string; away: string };
+}) {
   const periods = Math.max(linescore.home.length, linescore.away.length);
   if (periods === 0) return null;
   const cols = Array.from({ length: periods }, (_, i) => i);
+  const rows = [
+    { side: "away" as const, label: labels.away, scores: linescore.away },
+    { side: "home" as const, label: labels.home, scores: linescore.home },
+  ];
   return (
-    <table className="tabular mt-3 w-full text-micro">
+    <table className="tabular mt-3 w-full border-t border-border text-micro">
       <thead>
         <tr className="text-faint">
-          <th className="text-left font-normal"></th>
+          <th className="pt-3 text-left font-normal"></th>
           {cols.map((i) => (
-            <th key={i} className="px-1 text-center font-normal">
+            <th key={i} className="px-1 pt-3 text-center font-normal">
               {i + 1}
             </th>
           ))}
-          <th className="px-1 text-right font-medium text-dim">T</th>
+          <th className={`${TOTAL_CELL} pt-3 font-medium text-dim`}>T</th>
         </tr>
       </thead>
       <tbody className="text-muted">
-        <tr>
-          <td className="text-left text-faint">Away</td>
-          {cols.map((i) => (
-            <td key={i} className="px-1 text-center">
-              {linescore.away[i] ?? "-"}
+        {rows.map(({ side, label, scores }) => (
+          <tr key={side}>
+            <td className="text-left font-medium text-dim">{label}</td>
+            {cols.map((i) => (
+              <td key={i} className="px-1 text-center">
+                {scores[i] ?? "-"}
+              </td>
+            ))}
+            <td className={`${TOTAL_CELL} font-medium text-text`}>
+              {scores.reduce((a, b) => a + b, 0)}
             </td>
-          ))}
-          <td className="px-1 text-right font-medium text-text">
-            {linescore.away.reduce((a, b) => a + b, 0)}
-          </td>
-        </tr>
-        <tr>
-          <td className="text-left text-faint">Home</td>
-          {cols.map((i) => (
-            <td key={i} className="px-1 text-center">
-              {linescore.home[i] ?? "-"}
-            </td>
-          ))}
-          <td className="px-1 text-right font-medium text-text">
-            {linescore.home.reduce((a, b) => a + b, 0)}
-          </td>
-        </tr>
+          </tr>
+        ))}
       </tbody>
     </table>
   );
@@ -117,10 +124,11 @@ export function Scoreboard({
   pick_result,
 }: ScoreboardProps) {
   const state = gameState({ scheduled_start, live });
-  const now = useNow(state === "scheduled" || state === "live");
+  const now = useNow(state === "scheduled");
   const { home, away, homeAccent, awayAccent } = matchupVisuals(home_team, away_team);
   const homeShort = teamVisual(home_team)?.short ?? home_team ?? "Home";
   const awayShort = teamVisual(away_team)?.short ?? away_team ?? "Away";
+  const labels = { home: abbreviation(home_team), away: abbreviation(away_team) };
   const sportKey = sport?.toLowerCase() ?? "";
   const showPossessionAndDowns = sportKey === "nfl" || sportKey === "ncaaf";
 
@@ -128,21 +136,17 @@ export function Scoreboard({
   const possessionAway = showPossessionAndDowns && live?.possession_side === "away";
 
   return (
-    <div className="rounded-md border border-border bg-[var(--surface-sunken)] p-3">
+    <div>
       {state === "live" && live ? (
         <>
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-[var(--live)]">
-              <LiveDot />
-              Live
-            </span>
-            <span className="tabular text-micro text-faint">{updatedAgo(live.updated_at, now)}</span>
-          </div>
+          <span className="inline-flex items-center gap-1.5 text-micro font-semibold text-[var(--live)]">
+            <LiveDot />
+            Live
+          </span>
           <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <Side
               name={away_team}
               short={awayShort}
-              side="away"
               visual={away}
               accent={awayAccent}
               record={live.away_record}
@@ -156,7 +160,6 @@ export function Scoreboard({
             <Side
               name={home_team}
               short={homeShort}
-              side="home"
               visual={home}
               accent={homeAccent}
               record={live.home_record}
@@ -174,19 +177,15 @@ export function Scoreboard({
               {live.last_play}
             </div>
           ) : null}
-          {live.linescore ? <Linescore linescore={live.linescore} /> : null}
+          {live.linescore ? <Linescore linescore={live.linescore} labels={labels} /> : null}
         </>
       ) : state === "final" && live ? (
         <>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-micro font-semibold uppercase tracking-wide text-muted">Final</span>
-            <span className="tabular text-micro text-faint">{updatedAgo(live.updated_at, now)}</span>
-          </div>
+          <span className="text-micro font-semibold text-muted">Final</span>
           <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <Side
               name={away_team}
               short={awayShort}
-              side="away"
               visual={away}
               accent={awayAccent}
               record={live.away_record}
@@ -200,7 +199,6 @@ export function Scoreboard({
             <Side
               name={home_team}
               short={homeShort}
-              side="home"
               visual={home}
               accent={homeAccent}
               record={live.home_record}
@@ -214,12 +212,12 @@ export function Scoreboard({
             awayScore={live.away_score}
             pickResult={pick_result ?? null}
           />
-          {live.linescore ? <Linescore linescore={live.linescore} /> : null}
+          {live.linescore ? <Linescore linescore={live.linescore} labels={labels} /> : null}
         </>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-micro font-semibold uppercase tracking-wide text-muted">
+            <span className="text-micro font-semibold text-muted">
               {state === "started" ? "Started" : "Scheduled"}
             </span>
             <span className="tabular text-micro text-faint">
@@ -233,7 +231,6 @@ export function Scoreboard({
             <Side
               name={away_team}
               short={awayShort}
-              side="away"
               visual={away}
               accent={awayAccent}
               record={live?.away_record ?? null}
@@ -243,7 +240,6 @@ export function Scoreboard({
             <Side
               name={home_team}
               short={homeShort}
-              side="home"
               visual={home}
               accent={homeAccent}
               record={live?.home_record ?? null}

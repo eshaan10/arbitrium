@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countdownTo, gameState, updatedAgo } from "./liveState";
+import { countdownTo, gameState } from "./liveState";
 import type { Live } from "./types";
 
 const START = "2026-10-11T20:00:00Z";
@@ -77,17 +77,5 @@ describe("countdownTo", () => {
   it("returns an empty string once kickoff has passed", () => {
     const now = new Date("2026-10-11T20:01:00Z");
     expect(countdownTo(START, now)).toBe("");
-  });
-});
-
-describe("updatedAgo", () => {
-  it("formats seconds", () => {
-    const now = new Date("2026-10-11T20:00:12Z");
-    expect(updatedAgo("2026-10-11T20:00:00Z", now)).toBe("updated 12s ago");
-  });
-
-  it("formats minutes", () => {
-    const now = new Date("2026-10-11T20:02:00Z");
-    expect(updatedAgo("2026-10-11T20:00:00Z", now)).toBe("updated 2m ago");
   });
 });

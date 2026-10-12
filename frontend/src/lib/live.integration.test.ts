@@ -84,17 +84,3 @@ describe("toggle removal", () => {
     g.localStorage = prior;
   });
 });
-
-describe("greyed-out helper", () => {
-  it("marks Books/edge as pregame when the game is in progress", () => {
-    const d: Divergence = { ...scheduledEvent("x"), live: live("in_progress") } as Divergence;
-    const isLiveStatus = d.live?.status === "in_progress" || d.live?.status === "halftime";
-    // The components use isLive to pick between "Books" and "Pregame books",
-    // and to apply opacity/text classes. Here we just assert the predicate.
-    expect(isLiveStatus).toBe(true);
-    const expectedBooksLabel = isLiveStatus ? "Pregame books" : "Books";
-    expect(expectedBooksLabel).toBe("Pregame books");
-    const expectedEdgeTone = isLiveStatus ? "text-faint opacity-60" : "text-signal";
-    expect(expectedEdgeTone).toContain("opacity");
-  });
-});

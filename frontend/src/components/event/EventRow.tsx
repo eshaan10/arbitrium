@@ -122,7 +122,19 @@ function Books({
       } ${className}`}
       title={live ? "Pregame books; the game is in progress" : undefined}
     >
-      {live ? "Pregame books" : "Books"} {fairValueCents(r.fair_value, r.price)}
+      Books {fairValueCents(r.fair_value, r.price)}
+    </span>
+  );
+}
+
+/**
+ * One tag for both greyed numbers once the game is on. Spelling "Pregame" into
+ * each label made them too wide for their slots, and they ran into each other.
+ */
+function PregameTag() {
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded-sm border border-border px-1 text-micro text-faint">
+      pregame
     </span>
   );
 }
@@ -139,7 +151,6 @@ function Edge({ r, live = false }: { r: Recommendation; live?: boolean }) {
         live ? "bg-raised text-faint opacity-60" : "bg-raised text-signal"
       }`}
     >
-      {live ? "Pregame " : ""}
       {edgeCents(r.fair_value, r.price)}
     </span>
   );
@@ -246,6 +257,7 @@ function RecommendationRow({
             {headline}
           </span>
           <Pill r={r} className="px-3.5 py-1.5 text-[13px]" />
+          {live ? <PregameTag /> : null}
           <Books r={r} className="hidden w-[90px] text-right lg:block" live={live} />
           <Edge r={r} live={live} />
           {signalScale != null ? <SignalMeter d={d} scale={signalScale} /> : null}
@@ -285,6 +297,7 @@ function RecommendationRow({
             <span className="relative z-20 md:hidden">
               <Star d={d} favorited={isFavoriteGame} onToggle={onToggleFavoriteGame} size="lg" />
             </span>
+            {live ? <PregameTag /> : null}
             <Books r={r} live={live} />
             <span className="md:hidden">
               <Edge r={r} live={live} />

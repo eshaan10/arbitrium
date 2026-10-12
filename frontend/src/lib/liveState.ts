@@ -32,14 +32,3 @@ export function countdownTo(start: string, now: Date = new Date()): string {
   const rem = min - hr * 60;
   return rem > 0 ? `starts in ${hr}h ${rem}m` : `starts in ${hr}h`;
 }
-
-export function updatedAgo(iso: string, now: Date = new Date()): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "";
-  const sec = Math.max(0, Math.floor((now.getTime() - t) / 1000));
-  if (sec < 60) return `updated ${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `updated ${min}m ago`;
-  const hr = Math.floor(min / 60);
-  return `updated ${hr}h ago`;
-}
