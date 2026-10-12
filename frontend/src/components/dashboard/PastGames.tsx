@@ -183,7 +183,7 @@ export function PastGames({ pins }: { pins: PinnedGame[] }) {
   return (
     <section>
       <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
-        In progress or past
+        Your pinned games, graded
         <span className="tabular text-micro font-normal text-faint">{graded.length}</span>
       </h2>
       <div className="grid gap-2.5 lg:grid-cols-2">

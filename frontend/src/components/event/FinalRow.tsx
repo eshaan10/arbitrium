@@ -9,7 +9,7 @@ import { finalLive, finalScoreLine, pickHeadline, weSaid, winnerLine } from "@/l
 import type { FinalGame, PickResult } from "@/lib/types";
 
 /**
- * A finished game in "In progress or past".
+ * A finished game in the dashboard's "Past" section.
  *
  * It shows what we said before the game and how that turned out, never what
  * Kalshi says now: a settled market sits at 0 or 100 cents, and printing that

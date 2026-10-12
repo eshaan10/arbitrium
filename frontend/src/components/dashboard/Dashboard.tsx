@@ -9,7 +9,7 @@ import {
   LIST_LIMIT,
   queryKeys,
 } from "@/lib/api";
-import { GROUP_LABELS, groupEvents, type Group } from "@/lib/grouping";
+import { groupEvents, type Group } from "@/lib/grouping";
 import { capFinals } from "@/lib/finals";
 import { capPerSport, rankBySignal, signalScale, TODAY_PER_SPORT } from "@/lib/signal";
 import { browseAllHref, sportTabs } from "@/lib/sports";
@@ -225,11 +225,6 @@ export function Dashboard({
     visible,
     isClient ? dataUpdatedAt || serverNow : serverNow,
   );
-  // Finished games live in "In progress or past" after the live ones, so the
-  // section exists whenever there are any, even with nothing in progress.
-  if (visibleFinals.length > 0 && !groups.some((g) => g.key === "started")) {
-    groups.unshift({ key: "started", label: GROUP_LABELS.started, events: [] });
-  }
   const finalsShown = capFinals(visibleFinals, finalsExpanded);
 
   const foldUnscoreable = shouldFold(view, search);
@@ -295,7 +290,7 @@ export function Dashboard({
         />
 
         <div className="pt-6">
-          {groups.length === 0 ? (
+          {groups.length === 0 && visibleFinals.length === 0 ? (
             <EmptyState
               title={view === "recommended" && !search ? noEdge.title : "Nothing here right now"}
             >
@@ -338,7 +333,7 @@ export function Dashboard({
                         folded away. The fold states its own number; a header
                         that silently shrank would misreport the feed. */}
                     <span className="tabular text-micro font-normal text-faint">
-                      {group.events.length + (group.key === "started" ? visibleFinals.length : 0)}
+                      {group.events.length}
                     </span>
                   </h2>
                   {density === "rows" ? (
@@ -392,20 +387,33 @@ export function Dashboard({
                         : `Show ${more} more ${more === 1 ? "game" : "games"}`}
                     </button>
                   ) : null}
-                  {group.key === "started" && visibleFinals.length > 0 ? (
-                    <div className={`flex flex-col gap-2 ${shown.length > 0 ? "mt-2" : ""}`}>
-                      {finalsShown.shown.map((f) => (
-                        <FinalRow
-                          key={f.event_id}
-                          f={f}
-                          open={openRow === f.event_id}
-                          onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
-                          onOpen={recordFinalOpen}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {group.key === "started" && finalsShown.more > 0 ? (
+                  <UnscoreableGroup events={folded} minBooks={minBooks} />
+                </section>
+                );
+              })}
+
+              {/* Finished games, after everything still to play: the page leads
+                  with what can be acted on. */}
+              {visibleFinals.length > 0 ? (
+                <section>
+                  <h2 className="rule-label mb-3 flex items-center gap-3 text-[15px] font-medium text-dim">
+                    Past
+                    <span className="tabular text-micro font-normal text-faint">
+                      {visibleFinals.length}
+                    </span>
+                  </h2>
+                  <div className="flex flex-col gap-2">
+                    {finalsShown.shown.map((f) => (
+                      <FinalRow
+                        key={f.event_id}
+                        f={f}
+                        open={openRow === f.event_id}
+                        onToggle={(id) => setOpenRow((cur) => (cur === id ? null : id))}
+                        onOpen={recordFinalOpen}
+                      />
+                    ))}
+                  </div>
+                  {finalsShown.more > 0 ? (
                     <button
                       type="button"
                       aria-expanded={finalsExpanded}
@@ -417,10 +425,8 @@ export function Dashboard({
                         : `Show ${finalsShown.more} more ${finalsShown.more === 1 ? "game" : "games"}`}
                     </button>
                   ) : null}
-                  <UnscoreableGroup events={folded} minBooks={minBooks} />
                 </section>
-                );
-              })}
+              ) : null}
             </div>
           )}
 

@@ -2,7 +2,7 @@ import { cents, fairValueCents } from "./format";
 import { teamVisual } from "./teams";
 import type { FinalGame, Live } from "./types";
 
-/** Finished games shown before "Show N more" in "In progress or past". */
+/** Finished games shown before "Show N more" in "Past". */
 export const FINALS_SHOWN = 10;
 
 export function capFinals<T>(
